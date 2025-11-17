@@ -12,18 +12,17 @@ interface MarketplaceAsset {
   name: string;
   description: string;
   owner: string;
-  creator: string;
-  type: 'ERC-721' | 'ERC-1155';
+  seller: string;
+  type: 'ERC-721';
   image: string;
   ipfsHash: string;
   timestamp: number;
-  price?: number;
+  priceEth?: string;
   forSale?: boolean;
-  balance?: number; // For ERC-1155
 }
 
 const Marketplace: React.FC = () => {
-  const { erc721Contract, erc1155Contract, getUserAssets, getMarketplaceListings, listERC721ForSale, buyERC721 } = useContracts();
+  const { erc721Contract, getMarketplaceListings, listERC721ForSale, buyERC721, cancelERC721Listing } = useContracts();
   const { account, accounts, refreshBalance } = useWeb3();
   const [assets, setAssets] = useState<MarketplaceAsset[]>([]);
   const [loading, setLoading] = useState(true);
@@ -34,81 +33,39 @@ const Marketplace: React.FC = () => {
 
   useEffect(() => {
     loadAllAssets();
-  }, [erc721Contract, erc1155Contract, accounts]);
+  }, [erc721Contract, accounts]);
 
   const loadAllAssets = async () => {
-    if (!erc721Contract || !erc1155Contract || accounts.length === 0) {
+    if (!erc721Contract) {
       setLoading(false);
       return;
     }
-
     setLoading(true);
     const allAssets: MarketplaceAsset[] = [];
-
     try {
       const listings = await getMarketplaceListings();
-      const listingMap = new Map<number, { price: number; priceEth: string; active: boolean }>();
-      listings.forEach(l => {
-        if (l.active) {
-          listingMap.set(l.tokenId, {
-            price: Number(l.priceWei),
-            priceEth: l.priceEth,
-            active: l.active
-          });
-        }
-      });
-
-      for (const accountAddress of accounts) {
-        const userAssets = await getUserAssets(accountAddress);
-        
-        // ERC-721
-        userAssets.erc721Tokens.forEach((token) => {
-          const listing = listingMap.get(token.tokenId);
+      for (const l of listings) {
+        if (!l.active) continue;
+        try {
+          const owner = await erc721Contract.ownerOf(l.tokenId);
+          const meta = await erc721Contract.getAssetMetadata(l.tokenId);
           allAssets.push({
-            id: `erc721-${token.tokenId}-${accountAddress}`,
-            tokenId: token.tokenId,
-            name: token.metadata.name,
-            description: token.metadata.description,
-            owner: accountAddress,
-            creator: token.metadata.creator,
+            id: `erc721-${l.tokenId}`,
+            tokenId: l.tokenId,
+            name: meta.name,
+            description: meta.description,
+            owner,
+            seller: l.seller,
             type: 'ERC-721',
-            image: `https://ipfs.io/ipfs/${token.metadata.ipfsHash}`,
-            ipfsHash: token.metadata.ipfsHash,
-            timestamp: token.metadata.timestamp,
-            forSale: listing?.active || false,
-            price: listing ? Number(listing.priceEth) : undefined,
+            image: `https://ipfs.io/ipfs/${meta.ipfsHash}`,
+            ipfsHash: meta.ipfsHash,
+            timestamp: Number(meta.timestamp),
+            forSale: true,
+            priceEth: l.priceEth,
           });
-        });
-
-        // ERC-1155
-        userAssets.erc1155Tokens.forEach((token) => {
-          allAssets.push({
-            id: `erc1155-${token.tokenId}-${accountAddress}`,
-            tokenId: token.tokenId,
-            name: token.metadata.name,
-            description: token.metadata.description,
-            owner: accountAddress,
-            creator: token.metadata.creator,
-            type: 'ERC-1155',
-            image: `https://ipfs.io/ipfs/${token.metadata.ipfsHash}`,
-            ipfsHash: token.metadata.ipfsHash,
-            timestamp: token.metadata.timestamp,
-            balance: token.balance,
-            forSale: false,
-          });
-        });
+        } catch {}
       }
-
-      // Sort
-      allAssets.sort((a, b) => {
-        switch (sortBy) {
-          case 'newest': return b.timestamp - a.timestamp;
-          case 'oldest': return a.timestamp - b.timestamp;
-          case 'name':   return a.name.localeCompare(b.name);
-          default:       return b.timestamp - a.timestamp;
-        }
-      });
-
+      allAssets.sort((a, b) => b.timestamp - a.timestamp);
       setAssets(allAssets);
     } catch (error) {
       console.error('Error loading marketplace assets:', error);
@@ -151,6 +108,15 @@ const Marketplace: React.FC = () => {
       await loadAllAssets();
     } catch (e: any) {
       toast.error(e.message || 'Purchase failed');
+    }
+  };
+  const handleCancel = async (tokenId: number) => {
+    try {
+      const receipt = await cancelERC721Listing(tokenId);
+      toast.success('Listing cancelled');
+      await loadAllAssets();
+    } catch (e: any) {
+      toast.error(e.message || 'Cancel failed');
     }
   };
 
@@ -262,12 +228,12 @@ const Marketplace: React.FC = () => {
                     <div className="text-xs text-gray-500 mt-2">
                       Owner: {formatAddress(asset.owner)} • Minted: {formatDate(asset.timestamp)}
                     </div>
-                    {asset.price !== undefined && asset.forSale && (
+                    {asset.priceEth && asset.forSale && (
                       <div className="mt-2 text-lg font-bold text-[#00E0FF]">
-                        {asset.price} ETH
+                        {asset.priceEth} ETH
                       </div>
                     )}
-                    {asset.price === undefined && asset.type === 'ERC-721' && (
+                    {asset.priceEth === undefined && asset.type === 'ERC-721' && (
                       <div className="mt-2 text-sm text-gray-500">
                         Not listed
                       </div>
@@ -295,12 +261,20 @@ const Marketplace: React.FC = () => {
                           </button>
                         </div>
                       )}
-                      {asset.forSale && (
+                      {asset.forSale && asset.owner.toLowerCase() !== account?.toLowerCase() && (
                         <button
                           onClick={() => handleBuy(asset.tokenId)}
                           className="px-3 py-2 rounded bg-purple-600 hover:bg-purple-700 text-white text-sm"
                         >
                           Buy
+                        </button>
+                      )}
+                      {asset.forSale && asset.seller.toLowerCase() === account?.toLowerCase() && (
+                        <button
+                          onClick={() => handleCancel(asset.tokenId)}
+                          className="px-3 py-2 rounded bg-red-600 hover:bg-red-700 text-white text-sm"
+                        >
+                          Cancel
                         </button>
                       )}
                       <a
@@ -327,12 +301,12 @@ const Marketplace: React.FC = () => {
                     <div className="text-xs text-gray-500">
                       Owner: {formatAddress(asset.owner)} • Minted: {formatDate(asset.timestamp)}
                     </div>
-                    {asset.price !== undefined && asset.forSale && (
+                    {asset.priceEth !== undefined && asset.forSale && (
                       <div className="text-lg font-bold text-[#00E0FF] mt-1">
-                        {asset.price} ETH
+                        {asset.priceEth} ETH
                       </div>
                     )}
-                    {asset.price === undefined && asset.type === 'ERC-721' && (
+                    {asset.priceEth === undefined && asset.type === 'ERC-721' && (
                       <div className="text-sm text-gray-500 mt-1">
                         Not listed
                       </div>

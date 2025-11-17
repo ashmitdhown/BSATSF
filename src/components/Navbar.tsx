@@ -1,6 +1,7 @@
 import React from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { useWeb3 } from '../contexts/Web3Context';
+import AccountSelector from './AccountSelector';
 
 const Navbar: React.FC = () => {
   const { account, isConnected, disconnectWallet } = useWeb3();
@@ -69,9 +70,7 @@ const Navbar: React.FC = () => {
             <div className="flex min-w-[84px] cursor-default items-center justify-center overflow-hidden rounded-full h-8 px-4 bg-violet-500/20 text-violet-300 text-sm font-bold leading-normal tracking-[0.015em] border border-violet-500/50">
               <span className="truncate">Sepolia</span>
             </div>
-            <div className="text-sm text-white/70">
-              {account?.slice(0, 6)}...{account?.slice(-4)}
-            </div>
+            <AccountSelector />
             <button 
               onClick={disconnectWallet}
               className="text-sm text-white/70 hover:text-white transition-colors"

@@ -20,6 +20,7 @@ interface ContractContextType {
   marketplaceContract: ethers.Contract | null;
   listERC721ForSale: (tokenId: number, priceEth: string) => Promise<ethers.TransactionReceipt>;
   buyERC721: (tokenId: number) => Promise<ethers.TransactionReceipt>;
+  cancelERC721Listing: (tokenId: number) => Promise<ethers.TransactionReceipt>;
   getMarketplaceListings: () => Promise<Array<{ seller: string; tokenId: number; priceWei: string; priceEth: string; active: boolean }>>;
 }
 
@@ -449,6 +450,16 @@ export function ContractProvider({ children }: { children: React.ReactNode }) {
     toast.success(`Listed token #${tokenId} for ${priceEth} ETH`);
     return receipt;
   };
+
+  const cancelERC721Listing = async (tokenId: number) => {
+    if (!marketplaceContract || !signer) throw new Error("Marketplace not initialized");
+    const tx = await (marketplaceContract as any).connect(signer).cancel(tokenId);
+    toast.loading("Cancelling listing...");
+    const receipt = await tx.wait();
+    toast.dismiss();
+    toast.success(`Listing cancelled for token #${tokenId}`);
+    return receipt;
+  };
   
   const buyERC721 = async (tokenId: number) => {
     if (!marketplaceContract || !erc721Contract || !signer) throw new Error("Contracts not initialized");
@@ -507,6 +518,7 @@ export function ContractProvider({ children }: { children: React.ReactNode }) {
         marketplaceContract,
         listERC721ForSale,
         buyERC721,
+        cancelERC721Listing,
         getMarketplaceListings,
       }}
     >
