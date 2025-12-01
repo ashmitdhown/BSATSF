@@ -1,359 +1,250 @@
-// Marketplace component (fix duplicate nested definition and render UI from the top-level component)
 import React, { useState, useEffect } from 'react';
-import { Link } from 'react-router-dom';
-import { useContracts } from '../contexts/ContractContext';
+import { useContracts, MarketplaceListing } from '../contexts/ContractContext';
 import { useWeb3 } from '../contexts/Web3Context';
-import { Search, Grid, List, Eye, ExternalLink } from 'lucide-react';
+import { Search, Grid, List, ExternalLink, ShoppingCart, XCircle } from 'lucide-react';
 import toast from 'react-hot-toast';
 
-interface MarketplaceAsset {
-  id: string;
-  tokenId: number;
+// Combined interface for UI
+interface DisplayListing extends MarketplaceListing {
   name: string;
   description: string;
-  owner: string;
-  seller: string;
-  type: 'ERC-721';
   image: string;
   ipfsHash: string;
   timestamp: number;
-  priceEth?: string;
-  forSale?: boolean;
 }
 
 const Marketplace: React.FC = () => {
-  const { erc721Contract, getMarketplaceListings, listERC721ForSale, buyERC721, cancelERC721Listing } = useContracts();
-  const { account, accounts, refreshBalance } = useWeb3();
-  const [assets, setAssets] = useState<MarketplaceAsset[]>([]);
+  const { getMarketplaceListings, getAssetMetadata, buyAsset, cancelListing } = useContracts();
+  const { account } = useWeb3();
+
+  const [listings, setListings] = useState<DisplayListing[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
-  const [filterType, setFilterType] = useState<'All' | 'ERC-721' | 'ERC-1155'>('All');
+  const [filterType, setFilterType] = useState<'All' | 'ERC721' | 'ERC1155'>('All');
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
-  const [sortBy, setSortBy] = useState<'newest' | 'oldest' | 'name'>('newest');
 
   useEffect(() => {
-    loadAllAssets();
-  }, [erc721Contract, accounts]);
+    loadListings();
+  }, [account]); // Reload if account changes (to update "My Listings" view)
 
-  const loadAllAssets = async () => {
-    if (!erc721Contract) {
-      setLoading(false);
-      return;
-    }
+  const loadListings = async () => {
     setLoading(true);
-    const allAssets: MarketplaceAsset[] = [];
     try {
-      const listings = await getMarketplaceListings();
-      for (const l of listings) {
-        if (!l.active) continue;
-        try {
-          const owner = await erc721Contract.ownerOf(l.tokenId);
-          const meta = await erc721Contract.getAssetMetadata(l.tokenId);
-          allAssets.push({
-            id: `erc721-${l.tokenId}`,
-            tokenId: l.tokenId,
-            name: meta.name,
-            description: meta.description,
-            owner,
-            seller: l.seller,
-            type: 'ERC-721',
-            image: `https://ipfs.io/ipfs/${meta.ipfsHash}`,
-            ipfsHash: meta.ipfsHash,
-            timestamp: Number(meta.timestamp),
-            forSale: true,
-            priceEth: l.priceEth,
-          });
-        } catch {}
-      }
-      allAssets.sort((a, b) => b.timestamp - a.timestamp);
-      setAssets(allAssets);
+      // 1. Get Core Listing Data from Smart Contract
+      const rawListings = await getMarketplaceListings();
+
+      // 2. Hydrate with Metadata (Name, Image, etc.)
+      const hydrated = await Promise.all(rawListings.map(async (l) => {
+        // Skip inactive ones immediately
+        if (!l.active) return null;
+
+        // Fetch metadata based on type
+        const type = l.isERC1155 ? 'ERC1155' : 'ERC721';
+        const meta = await getAssetMetadata(l.tokenId, type);
+
+        return {
+          ...l,
+          name: meta?.name || `Unknown Asset #${l.tokenId}`,
+          description: meta?.description || 'No description',
+          image: meta?.ipfsHash ? `https://gateway.pinata.cloud/ipfs/${meta.ipfsHash}` : '',
+          ipfsHash: meta?.ipfsHash || '',
+          timestamp: meta?.timestamp || Date.now(),
+        } as DisplayListing;
+      }));
+
+      // Filter out nulls and set state
+      setListings(hydrated.filter((l): l is DisplayListing => l !== null));
+
     } catch (error) {
-      console.error('Error loading marketplace assets:', error);
-      toast.error('Failed to load marketplace assets');
+      console.error("Marketplace load error:", error);
+      toast.error("Failed to load listings");
     } finally {
       setLoading(false);
     }
   };
 
-  const filteredAssets = assets.filter(asset => {
-    const matchesSearch = asset.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                          asset.description.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                          asset.owner.toLowerCase().includes(searchTerm.toLowerCase());
-    const matchesFilter = filterType === 'All' || asset.type === filterType;
-    return matchesSearch && matchesFilter;
+  const handleBuy = async (listing: DisplayListing) => {
+    try {
+      let qtyToBuy = 1;
+
+      // If ERC-1155, ask how many
+      if (listing.isERC1155 && listing.quantity > 1) {
+        const input = prompt(`How many do you want to buy? (Max: ${listing.quantity})`, "1");
+        if (!input) return;
+        qtyToBuy = parseInt(input);
+        if (isNaN(qtyToBuy) || qtyToBuy <= 0 || qtyToBuy > listing.quantity) {
+          toast.error("Invalid quantity");
+          return;
+        }
+      }
+
+      // Calculate total price
+      const pricePerUnit = parseFloat(listing.priceEth);
+      const totalEth = (pricePerUnit * qtyToBuy).toString();
+
+      await buyAsset(listing.listingId, qtyToBuy, totalEth);
+
+      // Refresh UI
+      await loadListings();
+    } catch (e: any) {
+      console.error(e);
+      toast.error("Purchase failed: " + (e.reason || e.message));
+    }
+  };
+
+  const handleCancel = async (listingId: number) => {
+    if (!window.confirm("Are you sure you want to remove this listing?")) return;
+    try {
+      await cancelListing(listingId);
+      await loadListings();
+    } catch (e: any) {
+      toast.error("Cancel failed");
+    }
+  };
+
+  const filtered = listings.filter(l => {
+    const matchesSearch = l.name.toLowerCase().includes(searchTerm.toLowerCase());
+    const matchesType = filterType === 'All'
+      ? true
+      : filterType === 'ERC1155' ? l.isERC1155
+        : !l.isERC1155; // ERC721
+    return matchesSearch && matchesType;
   });
 
-  const formatAddress = (address: string) => `${address.slice(0, 6)}...${address.slice(-4)}`;
-  const formatDate = (timestamp: number) => new Date(timestamp * 1000).toLocaleDateString();
-  const isOwnAsset = (owner: string) => owner.toLowerCase() === account?.toLowerCase();
+  const formatAddress = (addr: string) => `${addr.slice(0, 6)}...${addr.slice(-4)}`;
 
-  const [listPrice, setListPrice] = useState<Record<number, string>>({});
-  const handleList = async (tokenId: number) => {
-    try {
-      const priceEth = listPrice[tokenId] || '0';
-      if (!priceEth || Number(priceEth) <= 0) return toast.error('Enter a valid price');
-      const receipt = await listERC721ForSale(tokenId, priceEth);
-      toast.success('Listed');
-      if (refreshBalance) await refreshBalance();
-      await loadAllAssets();
-    } catch (e: any) {
-      toast.error(e.message || 'Listing failed');
-    }
-  };
-  const handleBuy = async (tokenId: number) => {
-    try {
-      const receipt = await buyERC721(tokenId);
-      toast.success('Purchased');
-      if (refreshBalance) await refreshBalance();
-      await loadAllAssets();
-    } catch (e: any) {
-      toast.error(e.message || 'Purchase failed');
-    }
-  };
-  const handleCancel = async (tokenId: number) => {
-    try {
-      const receipt = await cancelERC721Listing(tokenId);
-      toast.success('Listing cancelled');
-      await loadAllAssets();
-    } catch (e: any) {
-      toast.error(e.message || 'Cancel failed');
-    }
-  };
+  if (loading) return <div className="p-10 text-white text-center">Loading Marketplace...</div>;
 
-  if (loading) {
-    return (
-      <div className="relative w-full min-h-full overflow-x-hidden bg-[#0F1419]">
-        <div className="animate-grid absolute inset-0"></div>
-        <div className="relative z-10 flex items-center justify-center h-full">
-          <div className="text-white text-xl">Loading marketplace...</div>
-        </div>
-      </div>
-    );
-  }
-
-  // Render UI directly from the top-level component (fixed: removed nested function Marketplace)
   return (
     <div className="relative w-full min-h-screen overflow-x-hidden bg-[#0F1419]">
       <div className="animate-grid absolute inset-0"></div>
       <div className="relative z-10 flex flex-col h-full grow">
         <main className="w-full max-w-7xl mx-auto px-6 md:px-8 lg:px-12 py-10">
+
+          {/* Header */}
           <div className="flex flex-wrap justify-between items-center gap-4 mb-8">
             <div>
-              <h1 className="text-white text-4xl font-black leading-tight tracking-[-0.033em]">
-                Public Marketplace
-              </h1>
-              <p className="text-gray-400 text-lg mt-2">
-                Discover and explore assets from all users
-              </p>
+              <h1 className="text-white text-4xl font-black">Public Marketplace</h1>
+              <p className="text-gray-400 text-lg mt-2">Buy and Sell ERC-721 & ERC-1155 Assets</p>
             </div>
-            <div className="flex items-center gap-3">
-              <span className="text-sm text-gray-400">
-                {filteredAssets.length} assets found
-              </span>
-            </div>
+            <span className="text-sm text-gray-400">{filtered.length} active listings</span>
           </div>
 
-          {/* Search and Filters */}
+          {/* Controls */}
           <div className="flex flex-col lg:flex-row items-center gap-4 mb-8">
-            <div className="w-full lg:flex-1">
-              <div className="flex w-full flex-1 items-stretch rounded-lg h-12 glass-card">
-                <div className="text-[#E1E1E6] flex items-center justify-center pl-4">
-                  <Search size={24} />
-                </div>
-                <input 
-                  className="form-input flex w-full min-w-0 flex-1 resize-none overflow-hidden rounded-r-lg text-white focus:outline-0 focus:ring-0 border-none bg-transparent h-full placeholder:text-[#8D8D99] px-4 text-base"
-                  placeholder="Search by name, description, or owner..."
-                  value={searchTerm}
-                  onChange={(e) => setSearchTerm(e.target.value)}
-                />
-              </div>
+            <div className="flex w-full flex-1 items-stretch rounded-lg h-12 glass-card">
+              <div className="text-[#E1E1E6] flex items-center justify-center pl-4"><Search size={24} /></div>
+              <input
+                className="flex w-full bg-transparent text-white px-4 border-none focus:ring-0"
+                placeholder="Search assets..."
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+              />
             </div>
 
-            <div className="flex gap-3 flex-wrap">
-              <select
-                value={filterType}
-                onChange={(e) => setFilterType(e.target.value as any)}
-                className="h-12 px-4 bg-[rgba(20,25,40,0.6)] border border-white/10 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-[#00E0FF]"
-              >
-                <option value="All">All Types</option>
-                <option value="ERC-721">ERC-721 (NFTs)</option>
-                <option value="ERC-1155">ERC-1155 (Multi-Token)</option>
-              </select>
+            <select
+              value={filterType}
+              onChange={(e) => setFilterType(e.target.value as any)}
+              className="h-12 px-4 bg-[#1A1F2E] text-white rounded-lg border border-gray-700"
+            >
+              <option value="All">All Assets</option>
+              <option value="ERC721">NFTs (ERC-721)</option>
+              <option value="ERC1155">Multi-Token (ERC-1155)</option>
+            </select>
 
-              <select
-                value={sortBy}
-                onChange={(e) => setSortBy(e.target.value as any)}
-                className="h-12 px-4 bg-[rgba(20,25,40,0.6)] border border-white/10 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-[#00E0FF]"
-              >
-                <option value="newest">Newest First</option>
-                <option value="oldest">Oldest First</option>
-                <option value="name">Name A-Z</option>
-              </select>
-
-              <div className="flex border border-white/10 rounded-lg overflow-hidden">
-                <button
-                  onClick={() => setViewMode('grid')}
-                  className={`p-3 ${viewMode === 'grid' ? 'bg-[#00E0FF] text-black' : 'bg-[rgba(20,25,40,0.6)] text-white hover:bg-[rgba(20,25,40,0.8)]'} transition-colors`}
-                >
-                  <Grid size={18} />
-                </button>
-                <button
-                  onClick={() => setViewMode('list')}
-                  className={`p-3 ${viewMode === 'list' ? 'bg-[#00E0FF] text-black' : 'bg-[rgba(20,25,40,0.6)] text-white hover:bg-[rgba(20,25,40,0.8)]'} transition-colors`}
-                >
-                  <List size={18} />
-                </button>
-              </div>
+            <div className="flex border border-gray-700 rounded-lg overflow-hidden">
+              <button onClick={() => setViewMode('grid')} className={`p-3 ${viewMode === 'grid' ? 'bg-[#00E0FF] text-black' : 'text-white'}`}><Grid size={18} /></button>
+              <button onClick={() => setViewMode('list')} className={`p-3 ${viewMode === 'list' ? 'bg-[#00E0FF] text-black' : 'text-white'}`}><List size={18} /></button>
             </div>
           </div>
 
-          {/* Assets */}
-          {viewMode === 'grid' ? (
+          {/* Grid View */}
+          {viewMode === 'grid' && (
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
-              {filteredAssets.map((asset) => (
-                <div key={asset.id} className="bg-[#1A1F2E] border border-[#2A3441] rounded-xl overflow-hidden">
-                  <div className="h-40 bg-[#0F1419] flex items-center justify-center">
-                    {asset.image ? (
-                      <img src={asset.image} alt={asset.name} className="max-h-full" />
-                    ) : (
-                      <div className="text-gray-500">No image</div>
-                    )}
+              {filtered.map((asset) => (
+                <div key={asset.listingId} className="bg-[#1A1F2E] border border-[#2A3441] rounded-xl overflow-hidden hover:border-[#00E0FF] transition-colors">
+                  <div className="h-48 bg-black/50 flex items-center justify-center relative">
+                    {asset.image ? <img src={asset.image} alt={asset.name} className="h-full object-cover" /> : <span className="text-gray-500">No Image</span>}
+                    <div className="absolute top-2 right-2 bg-black/70 px-2 py-1 rounded text-xs text-white">
+                      {asset.isERC1155 ? 'ERC-1155' : 'ERC-721'}
+                    </div>
                   </div>
+
                   <div className="p-4">
-                    <div className="flex items-center justify-between">
-                      <h3 className="text-white font-semibold">{asset.name}</h3>
-                      <span className="text-xs px-2 py-1 rounded bg-[#2A3441] text-gray-300">{asset.type}</span>
+                    <div className="flex justify-between items-start">
+                      <h3 className="text-white font-bold text-lg truncate">{asset.name}</h3>
+                      <span className="text-[#00E0FF] font-mono font-bold">{asset.priceEth} ETH</span>
                     </div>
-                    <p className="text-gray-400 text-sm mt-2 line-clamp-2">{asset.description}</p>
-                    <div className="text-xs text-gray-500 mt-2">
-                      Owner: {formatAddress(asset.owner)} • Minted: {formatDate(asset.timestamp)}
+
+                    <p className="text-gray-400 text-sm mt-1 line-clamp-2">{asset.description}</p>
+
+                    <div className="mt-4 flex items-center justify-between text-xs text-gray-500">
+                      <span>Seller: {formatAddress(asset.seller)}</span>
+                      {asset.isERC1155 && <span>Qty: {asset.quantity}</span>}
                     </div>
-                    {asset.priceEth && asset.forSale && (
-                      <div className="mt-2 text-lg font-bold text-[#00E0FF]">
-                        {asset.priceEth} ETH
-                      </div>
-                    )}
-                    {asset.priceEth === undefined && asset.type === 'ERC-721' && (
-                      <div className="mt-2 text-sm text-gray-500">
-                        Not listed
-                      </div>
-                    )}
-                    <div className="flex gap-2 mt-4">
-                      <Link
-                        to={`/asset/${asset.tokenId}`}
-                        className="flex items-center gap-2 px-3 py-2 rounded bg-blue-600 hover:bg-blue-700 text-white text-sm"
-                      >
-                        <Eye size={16} /> View
-                      </Link>
-                      {isOwnAsset(asset.owner) && asset.type === 'ERC-721' && (
-                        <div className="flex items-center gap-2">
-                          <input
-                            className="px-2 py-1 rounded bg-[#2A3441] text-white text-sm w-24"
-                            placeholder="Price"
-                            value={listPrice[asset.tokenId] || ''}
-                            onChange={(e) => setListPrice({ ...listPrice, [asset.tokenId]: e.target.value })}
-                          />
-                          <button
-                            onClick={() => handleList(asset.tokenId)}
-                            className="px-3 py-2 rounded bg-green-600 hover:bg-green-700 text-white text-sm"
-                          >
-                            List
-                          </button>
-                        </div>
-                      )}
-                      {asset.forSale && asset.owner.toLowerCase() !== account?.toLowerCase() && (
+
+                    <div className="mt-4 flex gap-2">
+                      {asset.seller.toLowerCase() === account?.toLowerCase() ? (
                         <button
-                          onClick={() => handleBuy(asset.tokenId)}
-                          className="px-3 py-2 rounded bg-purple-600 hover:bg-purple-700 text-white text-sm"
+                          onClick={() => handleCancel(asset.listingId)}
+                          className="flex-1 flex items-center justify-center gap-2 bg-red-500/10 text-red-500 py-2 rounded-lg hover:bg-red-500/20 transition-all"
                         >
-                          Buy
+                          <XCircle size={16} /> Cancel Listing
+                        </button>
+                      ) : (
+                        <button
+                          onClick={() => handleBuy(asset)}
+                          className="flex-1 flex items-center justify-center gap-2 bg-[#00E0FF] text-black font-bold py-2 rounded-lg hover:bg-[#00B8D9] transition-all"
+                        >
+                          <ShoppingCart size={16} /> Buy Now
                         </button>
                       )}
-                      {asset.forSale && asset.seller.toLowerCase() === account?.toLowerCase() && (
-                        <button
-                          onClick={() => handleCancel(asset.tokenId)}
-                          className="px-3 py-2 rounded bg-red-600 hover:bg-red-700 text-white text-sm"
-                        >
-                          Cancel
-                        </button>
-                      )}
-                      <a
-                        href={`https://ipfs.io/ipfs/${asset.ipfsHash}`}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="flex items-center gap-2 px-3 py-2 rounded bg-[#2A3441] text-gray-200 text-sm hover:bg-[#334053]"
-                      >
-                        <ExternalLink size={16} /> IPFS
+
+                      <a href={`https://gateway.pinata.cloud/ipfs/${asset.ipfsHash}`} target="_blank" rel="noreferrer" className="p-2 bg-gray-800 rounded-lg text-gray-400 hover:text-white">
+                        <ExternalLink size={20} />
                       </a>
                     </div>
                   </div>
                 </div>
               ))}
             </div>
-          ) : (
-            <div className="space-y-3">
-              {filteredAssets.map((asset) => (
-                <div key={asset.id} className="flex items-center justify-between bg-[#1A1F2E] border border-[#2A3441] rounded-xl p-4">
-                  <div>
-                    <div className="text-white font-semibold">
-                      [{asset.type}] {asset.name} — #{asset.tokenId}
+          )}
+
+          {/* List View */}
+          {viewMode === 'list' && (
+            <div className="space-y-4">
+              {filtered.map(asset => (
+                <div key={asset.listingId} className="bg-[#1A1F2E] border border-[#2A3441] p-4 rounded-xl flex items-center justify-between">
+                  <div className="flex items-center gap-4">
+                    <div className="w-16 h-16 bg-black/50 rounded-lg overflow-hidden">
+                      {asset.image && <img src={asset.image} className="w-full h-full object-cover" />}
                     </div>
-                    <div className="text-xs text-gray-500">
-                      Owner: {formatAddress(asset.owner)} • Minted: {formatDate(asset.timestamp)}
+                    <div>
+                      <h3 className="text-white font-bold">{asset.name}</h3>
+                      <p className="text-sm text-gray-400">Seller: {formatAddress(asset.seller)}</p>
                     </div>
-                    {asset.priceEth !== undefined && asset.forSale && (
-                      <div className="text-lg font-bold text-[#00E0FF] mt-1">
-                        {asset.priceEth} ETH
-                      </div>
-                    )}
-                    {asset.priceEth === undefined && asset.type === 'ERC-721' && (
-                      <div className="text-sm text-gray-500 mt-1">
-                        Not listed
-                      </div>
-                    )}
                   </div>
-                  <div className="flex gap-2">
-                    <Link
-                      to={`/asset/${asset.tokenId}`}
-                      className="flex items-center gap-2 px-3 py-2 rounded bg-blue-600 hover:bg-blue-700 text-white text-sm"
-                    >
-                      <Eye size={16} /> View
-                    </Link>
-                    {isOwnAsset(asset.owner) && asset.type === 'ERC-721' && (
-                      <div className="flex items-center gap-2">
-                        <input
-                          className="px-2 py-1 rounded bg-[#2A3441] text-white text-sm w-24"
-                          placeholder="Price"
-                          value={listPrice[asset.tokenId] || ''}
-                          onChange={(e) => setListPrice({ ...listPrice, [asset.tokenId]: e.target.value })}
-                        />
-                        <button
-                          onClick={() => handleList(asset.tokenId)}
-                          className="px-3 py-2 rounded bg-green-600 hover:bg-green-700 text-white text-sm"
-                        >
-                          List
-                        </button>
-                      </div>
-                    )}
-                    {asset.forSale && (
+                  <div className="text-right">
+                    <div className="text-[#00E0FF] font-bold text-xl">{asset.priceEth} ETH</div>
+                    {asset.isERC1155 && <div className="text-sm text-gray-500">Available: {asset.quantity}</div>}
+
+                    {asset.seller.toLowerCase() !== account?.toLowerCase() && (
                       <button
-                        onClick={() => handleBuy(asset.tokenId)}
-                        className="px-3 py-2 rounded bg-purple-600 hover:bg-purple-700 text-white text-sm"
+                        onClick={() => handleBuy(asset)}
+                        className="mt-2 text-sm bg-white/10 px-4 py-1 rounded hover:bg-white/20 text-white"
                       >
                         Buy
                       </button>
                     )}
-                    <a
-                      href={`https://ipfs.io/ipfs/${asset.ipfsHash}`}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="flex items-center gap-2 px-3 py-2 rounded bg-[#2A3441] text-gray-200 text-sm hover:bg-[#334053]"
-                    >
-                      <ExternalLink size={16} /> IPFS
-                    </a>
                   </div>
                 </div>
               ))}
+            </div>
+          )}
+
+          {filtered.length === 0 && (
+            <div className="text-center py-20">
+              <p className="text-gray-500 text-lg">No active listings found.</p>
             </div>
           )}
         </main>

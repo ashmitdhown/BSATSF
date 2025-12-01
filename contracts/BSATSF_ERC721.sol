@@ -34,16 +34,19 @@ contract BSATSF_ERC721 is ERC721, ERC721URIStorage, Ownable, ReentrancyGuard {
         uint256 timestamp;
         address creator;
     }
+
+    // --- NEW: Helper Struct for Frontend Display ---
+    struct RenderAsset {
+        uint256 tokenId;
+        address owner;
+        string uri;
+        AssetMetadata metadata;
+    }
     
     constructor(address initialOwner) ERC721("BSATSF Asset", "BSATSF") Ownable(initialOwner) {}
     
     /**
      * @dev Mint a new asset NFT
-     * @param to Address to mint the token to
-     * @param metadataURI IPFS URI for token metadata
-     * @param name Asset name
-     * @param description Asset description
-     * @param ipfsHash IPFS hash of the asset file
      */
     function mintAsset(
         address to,
@@ -97,6 +100,7 @@ contract BSATSF_ERC721 is ERC721, ERC721URIStorage, Ownable, ReentrancyGuard {
 
         emit AssetTransferred(tokenId, from, to, feeRequired);
     }
+
     function tokenURI(uint256 tokenId) public view override(ERC721, ERC721URIStorage) returns (string memory) {
         return super.tokenURI(tokenId);
     }
@@ -104,6 +108,7 @@ contract BSATSF_ERC721 is ERC721, ERC721URIStorage, Ownable, ReentrancyGuard {
     function supportsInterface(bytes4 interfaceId) public view override(ERC721, ERC721URIStorage) returns (bool) {
         return super.supportsInterface(interfaceId);
     }
+
     /**
      * @dev Set transfer fee (only owner)
      */
@@ -128,7 +133,7 @@ contract BSATSF_ERC721 is ERC721, ERC721URIStorage, Ownable, ReentrancyGuard {
     }
     
     /**
-     * @dev Get all tokens owned by an address
+     * @dev Get all tokens owned by an address (Old Version - returns IDs only)
      */
     function getTokensByOwner(address owner) public view returns (uint256[] memory) {
         uint256 tokenCount = balanceOf(owner);
@@ -136,6 +141,7 @@ contract BSATSF_ERC721 is ERC721, ERC721URIStorage, Ownable, ReentrancyGuard {
         uint256 currentIndex = 0;
         
         for (uint256 i = 0; i < _tokenIdCounter; i++) {
+            // We use try/catch or ensure existence, but here iterating counter is safe as we don't burn
             if (ownerOf(i) == owner) {
                 tokenIds[currentIndex] = i;
                 currentIndex++;
@@ -144,6 +150,45 @@ contract BSATSF_ERC721 is ERC721, ERC721URIStorage, Ownable, ReentrancyGuard {
         
         return tokenIds;
     }
-    
-    
+
+    // --- NEW: Get ALL Assets (For Dashboard) ---
+    // This allows your frontend to fetch the entire database in one call
+    function getAllAssets() public view returns (RenderAsset[] memory) {
+        uint256 total = _tokenIdCounter;
+        RenderAsset[] memory items = new RenderAsset[](total);
+
+        for (uint256 i = 0; i < total; i++) {
+            items[i] = RenderAsset(
+                i,
+                ownerOf(i),
+                tokenURI(i),
+                assetMetadata[i]
+            );
+        }
+        return items;
+    }
+
+    // --- NEW: Get My Assets (For User Profile) ---
+    // Returns full details for a specific user
+    function getMyAssets() public view returns (RenderAsset[] memory) {
+        address sender = msg.sender;
+        uint256 tokenCount = balanceOf(sender);
+        uint256 total = _tokenIdCounter;
+        
+        RenderAsset[] memory items = new RenderAsset[](tokenCount);
+        uint256 currentIndex = 0;
+
+        for (uint256 i = 0; i < total; i++) {
+            if (ownerOf(i) == sender) {
+                items[currentIndex] = RenderAsset(
+                    i,
+                    sender,
+                    tokenURI(i),
+                    assetMetadata[i]
+                );
+                currentIndex++;
+            }
+        }
+        return items;
+    }
 }

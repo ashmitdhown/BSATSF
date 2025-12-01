@@ -11,6 +11,7 @@ import TransferOwnership from './components/TransferOwnership';
 import AssetDetail from './components/AssetDetail';
 import VerifyAsset from './components/VerifyAsset';
 import Settings from './components/Settings';
+import Help from './components/Help';
 
 function App() {
   const { account, isConnected } = useWeb3();
@@ -42,6 +43,7 @@ function App() {
               <Route path="/asset/:id" element={<AssetDetail />} />
               <Route path="/verify" element={<VerifyAsset />} />
               <Route path="/settings" element={<Settings />} />
+              <Route path="/help" element={<Help />} /> 
             </Routes>
           </Layout>
         } />

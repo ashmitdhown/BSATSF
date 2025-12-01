@@ -2,7 +2,8 @@ import React from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { useWeb3 } from '../contexts/Web3Context';
 import { LayoutGrid, Package, ArrowRightLeft, History, Settings, HelpCircle, Plus, Globe } from 'lucide-react';
-import AccountSelector from './AccountSelector';
+
+
 
 interface LayoutProps {
   children: React.ReactNode;
@@ -77,9 +78,15 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
             <Settings size={20} />
             Settings
           </Link>
+          
+          
           <Link
-            to="/verify"
-            className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium text-gray-300 hover:bg-[#2A3441] hover:text-white transition-colors"
+            to="/help"
+            className={`flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors ${
+              isActive('/help')
+                ? 'bg-[#00E0FF] text-[#0F1419]'
+                : 'text-gray-300 hover:bg-[#2A3441] hover:text-white'
+            }`}
           >
             <HelpCircle size={20} />
             Help
@@ -89,11 +96,16 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
           <div className="mt-4 pt-4 border-t border-[#2A3441] space-y-3">
             <div>
               <div className="text-xs text-gray-400 mb-2">Connected Account</div>
-              <AccountSelector />
+              {/* Full Address Display */}
+              <div className="bg-[#0F1419] p-3 rounded-lg border border-[#2A3441]">
+                <span className="text-xs text-white font-mono leading-tight block break-all">
+                  {account || "Not Connected"}
+                </span>
+              </div>
             </div>
             <button
               onClick={disconnectWallet}
-              className="w-full text-xs text-gray-400 hover:text-white transition-colors text-left"
+              className="w-full text-xs text-red-400 hover:text-red-300 transition-colors text-left pl-1"
             >
               Disconnect Wallet
             </button>
