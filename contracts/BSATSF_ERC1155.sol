@@ -3,7 +3,6 @@ pragma solidity ^0.8.20;
 
 import "@openzeppelin/contracts/token/ERC1155/ERC1155.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
- 
 
 /**
  * @title BSATSF_ERC1155
@@ -30,17 +29,26 @@ contract BSATSF_ERC1155 is ERC1155, Ownable {
         address creator;
         uint256 maxSupply;
     }
+
+    // --- NEW: Helper Structs for Frontend ---
+    struct RenderAsset {
+        uint256 id;
+        AssetMetadata metadata;
+        uint256 totalSupply;
+        string uri;
+    }
+
+    struct UserAsset {
+        uint256 id;
+        AssetMetadata metadata;
+        uint256 balance;
+        string uri;
+    }
     
     constructor(address initialOwner) ERC1155("https://api.bsatsf.com/metadata/{id}.json") Ownable(initialOwner) {}
     
     /**
      * @dev Mint new asset tokens
-     * @param to Address to mint tokens to
-     * @param amount Amount of tokens to mint
-     * @param name Asset name
-     * @param description Asset description
-     * @param ipfsHash IPFS hash of the asset file
-     * @param maxSupply Maximum supply for this token (0 = unlimited)
      */
     function mintAsset(
         address to,
@@ -130,30 +138,70 @@ contract BSATSF_ERC1155 is ERC1155, Ownable {
         return tokenIds;
     }
     
-    /**
-     * @dev Get asset metadata
-     */
     function getAssetMetadata(uint256 tokenId) public view returns (AssetMetadata memory) {
         require(_exists(tokenId), "Token does not exist");
         return assetMetadata[tokenId];
     }
     
-    /**
-     * @dev Get total supply of a token
-     */
     function totalSupply(uint256 tokenId) public view returns (uint256) {
         return tokenSupply[tokenId];
     }
     
-    /**
-     * @dev Check if token exists
-     */
     function _exists(uint256 tokenId) internal view returns (bool) {
         return tokenSupply[tokenId] > 0;
     }
+
+    // --- NEW: Get ALL Assets (For Registry/Dashboard) ---
+    function getAllAssets() public view returns (RenderAsset[] memory) {
+        uint256 total = _tokenIdCounter;
+        uint256 existCount = 0;
+        
+        // First count how many exist to size the array
+        for (uint256 i = 0; i < total; i++) {
+            if (_exists(i)) existCount++;
+        }
+
+        RenderAsset[] memory items = new RenderAsset[](existCount);
+        uint256 idx = 0;
+        for (uint256 i = 0; i < total; i++) {
+             if (_exists(i)) {
+                 // Reconstruct the URI string manually as it was done in the event
+                 string memory uri = string(abi.encodePacked("https://api.bsatsf.com/metadata/", _toString(i), ".json"));
+                 items[idx] = RenderAsset(i, assetMetadata[i], tokenSupply[i], uri);
+                 idx++;
+             }
+        }
+        return items;
+    }
+
+    // --- NEW: Get My Assets (For User Persistence) ---
+    // Returns tokens owned by the caller with their specific balances
+    function getMyAssets() public view returns (UserAsset[] memory) {
+        uint256 total = _tokenIdCounter;
+        uint256 ownedCount = 0;
+        address user = msg.sender;
+
+        // Count how many different token IDs the user owns
+        for (uint256 i = 0; i < total; i++) {
+            if (balanceOf(user, i) > 0) ownedCount++;
+        }
+
+        UserAsset[] memory items = new UserAsset[](ownedCount);
+        uint256 idx = 0;
+        for (uint256 i = 0; i < total; i++) {
+            uint256 bal = balanceOf(user, i);
+            if (bal > 0) {
+                 string memory uri = string(abi.encodePacked("https://api.bsatsf.com/metadata/", _toString(i), ".json"));
+                 items[idx] = UserAsset(i, assetMetadata[i], bal, uri);
+                 idx++;
+            }
+        }
+        return items;
+    }
     
     /**
-     * @dev Get all tokens owned by an address with their balances
+     * @dev Original function: Get all tokens owned by an address with their balances
+     * (Kept for backward compatibility)
      */
     function getTokensByOwner(address owner) public view returns (uint256[] memory, uint256[] memory) {
         uint256 totalTokens = _tokenIdCounter;
@@ -172,7 +220,6 @@ contract BSATSF_ERC1155 is ERC1155, Ownable {
             }
         }
         
-        // Create arrays with correct size
         uint256[] memory tokenIds = new uint256[](ownedCount);
         uint256[] memory balances = new uint256[](ownedCount);
         
@@ -184,9 +231,6 @@ contract BSATSF_ERC1155 is ERC1155, Ownable {
         return (tokenIds, balances);
     }
     
-    /**
-     * @dev Convert uint to string
-     */
     function _toString(uint256 value) internal pure returns (string memory) {
         if (value == 0) {
             return "0";

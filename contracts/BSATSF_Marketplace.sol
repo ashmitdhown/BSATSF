@@ -2,109 +2,177 @@
 pragma solidity ^0.8.20;
 
 import "@openzeppelin/contracts/access/Ownable.sol";
- 
 import "@openzeppelin/contracts/token/ERC721/IERC721.sol";
+import "@openzeppelin/contracts/token/ERC1155/IERC1155.sol";
+import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 
-/**
- * @title BSATSF_Marketplace
- * @dev Simple marketplace for BSATSF ERC-721 assets: list for sale and purchase with ETH
- */
-interface IBSATSF_ERC721 {
-    function transferFee() external view returns (uint256);
-    function transferAsset(address from, address to, uint256 tokenId) external payable;
-    function ownerOf(uint256 tokenId) external view returns (address);
-    function getApproved(uint256 tokenId) external view returns (address);
-    function isApprovedForAll(address owner, address operator) external view returns (bool);
-}
+contract BSATSF_Marketplace is Ownable, ReentrancyGuard {
+    
+    // Counter for unique listing IDs
+    uint256 private _listingIdCounter;
 
-contract BSATSF_Marketplace is Ownable {
     struct Listing {
+        uint256 listingId;
         address seller;
+        address tokenAddress; // Is it the 721 or 1155 contract?
         uint256 tokenId;
-        uint256 price; // in wei
+        uint256 quantity;     // 1 for ERC721, N for ERC1155
+        uint256 pricePerUnit; // Price per single item
+        bool isERC1155;
         bool active;
     }
 
-    address public erc721;
+    address public immutable erc721Contract;
+    address public immutable erc1155Contract;
+
+    // Mapping from Listing ID -> Listing Details
     mapping(uint256 => Listing) public listings;
-    uint256[] public activeTokenIds;
 
-    event Listed(address indexed seller, uint256 indexed tokenId, uint256 price);
-    event ListingCancelled(address indexed seller, uint256 indexed tokenId);
-    event Purchased(address indexed buyer, address indexed seller, uint256 indexed tokenId, uint256 price, uint256 fee);
+    event ItemListed(
+        uint256 indexed listingId, 
+        address indexed seller, 
+        address indexed tokenAddress, 
+        uint256 tokenId, 
+        uint256 quantity, 
+        uint256 pricePerUnit
+    );
 
-    constructor(address _erc721, address initialOwner) Ownable(initialOwner) {
-        erc721 = _erc721;
+    event ItemCanceled(uint256 indexed listingId);
+
+    event ItemSold(
+        uint256 indexed listingId, 
+        address indexed buyer, 
+        address indexed tokenAddress, 
+        uint256 tokenId, 
+        uint256 quantity, 
+        uint256 totalPrice
+    );
+
+    constructor(address _erc721, address _erc1155, address initialOwner) Ownable(initialOwner) {
+        erc721Contract = _erc721;
+        erc1155Contract = _erc1155;
     }
 
-    function list(uint256 tokenId, uint256 price) external {
+    // --- LISTING FUNCTIONS ---
+
+    // List an ERC-721 Asset
+    function listERC721(uint256 tokenId, uint256 price) external nonReentrant {
         require(price > 0, "Price must be > 0");
+        IERC721 token = IERC721(erc721Contract);
+        
+        require(token.ownerOf(tokenId) == msg.sender, "Not owner");
+        require(
+            token.isApprovedForAll(msg.sender, address(this)) || token.getApproved(tokenId) == address(this), 
+            "Marketplace not approved"
+        );
 
-        address owner = IBSATSF_ERC721(erc721).ownerOf(tokenId);
-        require(owner == msg.sender, "Not token owner");
-
-        // Require marketplace approval
-        bool approved = (IBSATSF_ERC721(erc721).getApproved(tokenId) == address(this)) ||
-                        IBSATSF_ERC721(erc721).isApprovedForAll(msg.sender, address(this));
-        require(approved, "Marketplace not approved");
-
-        listings[tokenId] = Listing({
+        _listingIdCounter++;
+        listings[_listingIdCounter] = Listing({
+            listingId: _listingIdCounter,
             seller: msg.sender,
+            tokenAddress: erc721Contract,
             tokenId: tokenId,
-            price: price,
+            quantity: 1,
+            pricePerUnit: price,
+            isERC1155: false,
             active: true
         });
-        activeTokenIds.push(tokenId);
 
-        emit Listed(msg.sender, tokenId, price);
+        emit ItemListed(_listingIdCounter, msg.sender, erc721Contract, tokenId, 1, price);
     }
 
-    function cancel(uint256 tokenId) external {
-        Listing memory l = listings[tokenId];
-        require(l.active, "Not listed");
-        require(l.seller == msg.sender, "Not seller");
+    // List an ERC-1155 Asset
+    function listERC1155(uint256 tokenId, uint256 quantity, uint256 pricePerUnit) external nonReentrant {
+        require(pricePerUnit > 0, "Price must be > 0");
+        require(quantity > 0, "Quantity must be > 0");
+        
+        IERC1155 token = IERC1155(erc1155Contract);
+        require(token.balanceOf(msg.sender, tokenId) >= quantity, "Insufficient balance");
+        require(token.isApprovedForAll(msg.sender, address(this)), "Marketplace not approved");
 
-        listings[tokenId].active = false;
-        emit ListingCancelled(msg.sender, tokenId);
+        _listingIdCounter++;
+        listings[_listingIdCounter] = Listing({
+            listingId: _listingIdCounter,
+            seller: msg.sender,
+            tokenAddress: erc1155Contract,
+            tokenId: tokenId,
+            quantity: quantity,
+            pricePerUnit: pricePerUnit,
+            isERC1155: true,
+            active: true
+        });
+
+        emit ItemListed(_listingIdCounter, msg.sender, erc1155Contract, tokenId, quantity, pricePerUnit);
     }
 
-    function purchase(uint256 tokenId) external payable {
-        Listing memory l = listings[tokenId];
-        require(l.active, "Not listed");
+    // --- BUYING FUNCTIONS ---
 
-        uint256 fee = IBSATSF_ERC721(erc721).transferFee();
-        require(msg.value >= l.price + fee, "Insufficient payment");
+    function buyItem(uint256 listingId, uint256 quantityToBuy) external payable nonReentrant {
+        Listing storage listedItem = listings[listingId];
+        require(listedItem.active, "Listing not active");
+        require(quantityToBuy > 0 && quantityToBuy <= listedItem.quantity, "Invalid quantity");
 
-        // Pay seller
-        payable(l.seller).transfer(l.price);
+        uint256 totalPrice = listedItem.pricePerUnit * quantityToBuy;
+        require(msg.value >= totalPrice, "Insufficient ETH sent");
 
-        // Transfer asset to buyer and pay fee to ERC721 owner
-        IBSATSF_ERC721(erc721).transferAsset{value: fee}(l.seller, msg.sender, tokenId);
+        // 1. Handle Payment
+        // Optional: Deduct platform fee here if desired
+        payable(listedItem.seller).transfer(listedItem.pricePerUnit * quantityToBuy);
 
-        listings[tokenId].active = false;
-        emit Purchased(msg.sender, l.seller, tokenId, l.price, fee);
+        // 2. Transfer Asset
+        if (listedItem.isERC1155) {
+            IERC1155(erc1155Contract).safeTransferFrom(listedItem.seller, msg.sender, listedItem.tokenId, quantityToBuy, "");
+        } else {
+            // ERC-721 logic (Quantity is always 1)
+            IERC721(erc721Contract).safeTransferFrom(listedItem.seller, msg.sender, listedItem.tokenId);
+        }
+
+        // 3. Update Listing State
+        listedItem.quantity -= quantityToBuy;
+        if (listedItem.quantity == 0) {
+            listedItem.active = false;
+        }
+
+        emit ItemSold(listingId, msg.sender, listedItem.tokenAddress, listedItem.tokenId, quantityToBuy, totalPrice);
+
+        // Refund excess ETH
+        if (msg.value > totalPrice) {
+            payable(msg.sender).transfer(msg.value - totalPrice);
+        }
     }
 
-    function getListing(uint256 tokenId) external view returns (Listing memory) {
-        return listings[tokenId];
+    // --- MANAGEMENT ---
+
+    function cancelListing(uint256 listingId) external {
+        Listing storage listedItem = listings[listingId];
+        require(listedItem.seller == msg.sender, "Not seller");
+        require(listedItem.active, "Not active");
+
+        listedItem.active = false;
+        emit ItemCanceled(listingId);
     }
 
-    function getActiveListings() external view returns (Listing[] memory) {
-        uint256 count = 0;
-        for (uint256 i = 0; i < activeTokenIds.length; i++) {
-            if (listings[activeTokenIds[i]].active) {
-                count++;
+    // --- VIEWS ---
+
+    function getAllActiveListings() external view returns (Listing[] memory) {
+        uint256 total = _listingIdCounter;
+        uint256 activeCount = 0;
+
+        for (uint256 i = 1; i <= total; i++) {
+            if (listings[i].active) {
+                activeCount++;
             }
         }
-        Listing[] memory results = new Listing[](count);
-        uint256 idx = 0;
-        for (uint256 i = 0; i < activeTokenIds.length; i++) {
-            uint256 t = activeTokenIds[i];
-            if (listings[t].active) {
-                results[idx] = listings[t];
-                idx++;
+
+        Listing[] memory activeListings = new Listing[](activeCount);
+        uint256 currentIndex = 0;
+
+        for (uint256 i = 1; i <= total; i++) {
+            if (listings[i].active) {
+                activeListings[currentIndex] = listings[i];
+                currentIndex++;
             }
         }
-        return results;
+        return activeListings;
     }
 }
