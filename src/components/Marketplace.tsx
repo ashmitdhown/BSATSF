@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useContracts, MarketplaceListing } from '../contexts/ContractContext';
 import { useWeb3 } from '../contexts/Web3Context';
-import { Search, Grid, List, ExternalLink, ShoppingCart, XCircle } from 'lucide-react';
+import { Search, Grid, List, ExternalLink, ShoppingCart, XCircle, RefreshCw } from 'lucide-react';
 import toast from 'react-hot-toast';
 
 // Combined interface for UI
@@ -14,7 +14,7 @@ interface DisplayListing extends MarketplaceListing {
 }
 
 const Marketplace: React.FC = () => {
-  const { getMarketplaceListings, getAssetMetadata, buyAsset, cancelListing } = useContracts();
+  const { getMarketplaceListings, getAssetMetadata, buyAsset, cancelListing, contractAddresses } = useContracts();
   const { account } = useWeb3();
 
   const [listings, setListings] = useState<DisplayListing[]>([]);
@@ -23,47 +23,71 @@ const Marketplace: React.FC = () => {
   const [filterType, setFilterType] = useState<'All' | 'ERC721' | 'ERC1155'>('All');
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
 
+  // Load listings on mount. We DO NOT depend on 'account' here.
+  // The marketplace should be visible even if disconnected.
   useEffect(() => {
     loadListings();
-  }, [account]); // Reload if account changes (to update "My Listings" view)
+  }, [getMarketplaceListings]);
 
   const loadListings = async () => {
     setLoading(true);
     try {
+      console.log("Fetching marketplace listings...");
       // 1. Get Core Listing Data from Smart Contract
       const rawListings = await getMarketplaceListings();
+      console.log(`Found ${rawListings.length} raw listings.`);
 
       // 2. Hydrate with Metadata (Name, Image, etc.)
       const hydrated = await Promise.all(rawListings.map(async (l) => {
         // Skip inactive ones immediately
         if (!l.active) return null;
 
-        // Fetch metadata based on type
-        const type = l.isERC1155 ? 'ERC1155' : 'ERC721';
-        const meta = await getAssetMetadata(l.tokenId, type);
+        try {
+          // Fetch metadata based on type
+          const type = l.isERC1155 ? 'ERC1155' : 'ERC721';
+          const meta = await getAssetMetadata(l.tokenId, type);
 
-        return {
-          ...l,
-          name: meta?.name || `Unknown Asset #${l.tokenId}`,
-          description: meta?.description || 'No description',
-          image: meta?.ipfsHash ? `https://gateway.pinata.cloud/ipfs/${meta.ipfsHash}` : '',
-          ipfsHash: meta?.ipfsHash || '',
-          timestamp: meta?.timestamp || Date.now(),
-        } as DisplayListing;
+          return {
+            ...l,
+            name: meta?.name || `Asset #${l.tokenId}`,
+            description: meta?.description || 'No description available',
+            image: meta?.ipfsHash ? `https://gateway.pinata.cloud/ipfs/${meta.ipfsHash}` : '',
+            ipfsHash: meta?.ipfsHash || '',
+            timestamp: meta?.timestamp || Date.now(),
+          } as DisplayListing;
+        } catch (err) {
+          console.warn(`Failed to load metadata for token ${l.tokenId}`, err);
+          // Return a fallback object instead of failing completely
+          return {
+            ...l,
+            name: `Unknown Asset #${l.tokenId}`,
+            description: 'Metadata unavailable',
+            image: '',
+            ipfsHash: '',
+            timestamp: Date.now(),
+          } as DisplayListing;
+        }
       }));
 
       // Filter out nulls and set state
-      setListings(hydrated.filter((l): l is DisplayListing => l !== null));
+      const validListings = hydrated.filter((l): l is DisplayListing => l !== null);
+      console.log(`Displaying ${validListings.length} valid listings.`);
+      setListings(validListings);
 
     } catch (error) {
       console.error("Marketplace load error:", error);
-      toast.error("Failed to load listings");
+      toast.error("Failed to load listings. Check console.");
     } finally {
       setLoading(false);
     }
   };
 
   const handleBuy = async (listing: DisplayListing) => {
+    if (!account) {
+      toast.error("Please connect your wallet to buy.");
+      return;
+    }
+
     try {
       let qtyToBuy = 1;
 
@@ -113,8 +137,6 @@ const Marketplace: React.FC = () => {
 
   const formatAddress = (addr: string) => `${addr.slice(0, 6)}...${addr.slice(-4)}`;
 
-  if (loading) return <div className="p-10 text-white text-center">Loading Marketplace...</div>;
-
   return (
     <div className="relative w-full min-h-screen overflow-x-hidden bg-[#0F1419]">
       <div className="animate-grid absolute inset-0"></div>
@@ -127,7 +149,16 @@ const Marketplace: React.FC = () => {
               <h1 className="text-white text-4xl font-black">Public Marketplace</h1>
               <p className="text-gray-400 text-lg mt-2">Buy and Sell ERC-721 & ERC-1155 Assets</p>
             </div>
-            <span className="text-sm text-gray-400">{filtered.length} active listings</span>
+            <div className="flex items-center gap-4">
+              <span className="text-sm text-gray-400">{filtered.length} active listings</span>
+              <button
+                onClick={loadListings}
+                className="p-2 bg-[#1A1F2E] border border-[#2A3441] rounded-lg text-white hover:text-[#00E0FF] transition-colors"
+                title="Refresh Listings"
+              >
+                <RefreshCw size={20} className={loading ? "animate-spin" : ""} />
+              </button>
+            </div>
           </div>
 
           {/* Controls */}
@@ -158,8 +189,16 @@ const Marketplace: React.FC = () => {
             </div>
           </div>
 
+          {/* Loading State */}
+          {loading && listings.length === 0 && (
+            <div className="flex flex-col items-center justify-center py-20">
+              <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-[#00E0FF] mb-4"></div>
+              <p className="text-gray-400">Loading marketplace listings...</p>
+            </div>
+          )}
+
           {/* Grid View */}
-          {viewMode === 'grid' && (
+          {!loading && viewMode === 'grid' && (
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
               {filtered.map((asset) => (
                 <div key={asset.listingId} className="bg-[#1A1F2E] border border-[#2A3441] rounded-xl overflow-hidden hover:border-[#00E0FF] transition-colors">
@@ -211,7 +250,7 @@ const Marketplace: React.FC = () => {
           )}
 
           {/* List View */}
-          {viewMode === 'list' && (
+          {!loading && viewMode === 'list' && (
             <div className="space-y-4">
               {filtered.map(asset => (
                 <div key={asset.listingId} className="bg-[#1A1F2E] border border-[#2A3441] p-4 rounded-xl flex items-center justify-between">
@@ -242,9 +281,10 @@ const Marketplace: React.FC = () => {
             </div>
           )}
 
-          {filtered.length === 0 && (
+          {!loading && filtered.length === 0 && (
             <div className="text-center py-20">
               <p className="text-gray-500 text-lg">No active listings found.</p>
+              <p className="text-sm text-gray-600 mt-2">Be the first to list an asset!</p>
             </div>
           )}
         </main>
