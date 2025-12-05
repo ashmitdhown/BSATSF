@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom'; // <--- Added for navigation
 import { useContracts, MarketplaceListing } from '../contexts/ContractContext';
 import { useWeb3 } from '../contexts/Web3Context';
-import { Search, Grid, List, ExternalLink, ShoppingCart, XCircle, RefreshCw } from 'lucide-react';
+import { Search, Grid, List, ExternalLink, ShoppingCart, XCircle, RefreshCw, Eye } from 'lucide-react';
 import toast from 'react-hot-toast';
 
 // Combined interface for UI
@@ -14,6 +15,7 @@ interface DisplayListing extends MarketplaceListing {
 }
 
 const Marketplace: React.FC = () => {
+  const navigate = useNavigate(); // <--- Initialize hook
   const { getMarketplaceListings, getAssetMetadata, buyAsset, cancelListing, contractAddresses } = useContracts();
   const { account } = useWeb3();
 
@@ -23,8 +25,7 @@ const Marketplace: React.FC = () => {
   const [filterType, setFilterType] = useState<'All' | 'ERC721' | 'ERC1155'>('All');
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
 
-  // Load listings on mount. We DO NOT depend on 'account' here.
-  // The marketplace should be visible even if disconnected.
+  // Load listings on mount
   useEffect(() => {
     loadListings();
   }, [getMarketplaceListings]);
@@ -33,17 +34,12 @@ const Marketplace: React.FC = () => {
     setLoading(true);
     try {
       console.log("Fetching marketplace listings...");
-      // 1. Get Core Listing Data from Smart Contract
       const rawListings = await getMarketplaceListings();
-      console.log(`Found ${rawListings.length} raw listings.`);
-
-      // 2. Hydrate with Metadata (Name, Image, etc.)
+      
       const hydrated = await Promise.all(rawListings.map(async (l) => {
-        // Skip inactive ones immediately
         if (!l.active) return null;
 
         try {
-          // Fetch metadata based on type
           const type = l.isERC1155 ? 'ERC1155' : 'ERC721';
           const meta = await getAssetMetadata(l.tokenId, type);
 
@@ -57,7 +53,6 @@ const Marketplace: React.FC = () => {
           } as DisplayListing;
         } catch (err) {
           console.warn(`Failed to load metadata for token ${l.tokenId}`, err);
-          // Return a fallback object instead of failing completely
           return {
             ...l,
             name: `Unknown Asset #${l.tokenId}`,
@@ -69,14 +64,12 @@ const Marketplace: React.FC = () => {
         }
       }));
 
-      // Filter out nulls and set state
       const validListings = hydrated.filter((l): l is DisplayListing => l !== null);
-      console.log(`Displaying ${validListings.length} valid listings.`);
       setListings(validListings);
 
     } catch (error) {
       console.error("Marketplace load error:", error);
-      toast.error("Failed to load listings. Check console.");
+      toast.error("Failed to load listings");
     } finally {
       setLoading(false);
     }
@@ -90,8 +83,6 @@ const Marketplace: React.FC = () => {
 
     try {
       let qtyToBuy = 1;
-
-      // If ERC-1155, ask how many
       if (listing.isERC1155 && listing.quantity > 1) {
         const input = prompt(`How many do you want to buy? (Max: ${listing.quantity})`, "1");
         if (!input) return;
@@ -102,13 +93,10 @@ const Marketplace: React.FC = () => {
         }
       }
 
-      // Calculate total price
       const pricePerUnit = parseFloat(listing.priceEth);
       const totalEth = (pricePerUnit * qtyToBuy).toString();
 
       await buyAsset(listing.listingId, qtyToBuy, totalEth);
-
-      // Refresh UI
       await loadListings();
     } catch (e: any) {
       console.error(e);
@@ -131,7 +119,7 @@ const Marketplace: React.FC = () => {
     const matchesType = filterType === 'All'
       ? true
       : filterType === 'ERC1155' ? l.isERC1155
-        : !l.isERC1155; // ERC721
+        : !l.isERC1155;
     return matchesSearch && matchesType;
   });
 
@@ -201,47 +189,59 @@ const Marketplace: React.FC = () => {
           {!loading && viewMode === 'grid' && (
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
               {filtered.map((asset) => (
-                <div key={asset.listingId} className="bg-[#1A1F2E] border border-[#2A3441] rounded-xl overflow-hidden hover:border-[#00E0FF] transition-colors">
-                  <div className="h-48 bg-black/50 flex items-center justify-center relative">
-                    {asset.image ? <img src={asset.image} alt={asset.name} className="h-full object-cover" /> : <span className="text-gray-500">No Image</span>}
+                <div key={asset.listingId} className="bg-[#1A1F2E] border border-[#2A3441] rounded-xl overflow-hidden hover:border-[#00E0FF] transition-colors flex flex-col">
+                  {/* Image Area */}
+                  <div className="h-48 bg-black/50 flex items-center justify-center relative cursor-pointer" onClick={() => navigate(`/asset-details/${asset.tokenId}`)}>
+                    {asset.image ? <img src={asset.image} alt={asset.name} className="h-full w-full object-cover" /> : <span className="text-gray-500">No Image</span>}
                     <div className="absolute top-2 right-2 bg-black/70 px-2 py-1 rounded text-xs text-white">
                       {asset.isERC1155 ? 'ERC-1155' : 'ERC-721'}
                     </div>
                   </div>
 
-                  <div className="p-4">
+                  {/* Content Area */}
+                  <div className="p-4 flex flex-col flex-grow">
                     <div className="flex justify-between items-start">
-                      <h3 className="text-white font-bold text-lg truncate">{asset.name}</h3>
+                      <h3 className="text-white font-bold text-lg truncate cursor-pointer hover:text-[#00E0FF]" onClick={() => navigate(`/asset-details/${asset.tokenId}`)}>
+                        {asset.name}
+                      </h3>
                       <span className="text-[#00E0FF] font-mono font-bold">{asset.priceEth} ETH</span>
                     </div>
 
-                    <p className="text-gray-400 text-sm mt-1 line-clamp-2">{asset.description}</p>
+                    <p className="text-gray-400 text-sm mt-1 line-clamp-2 mb-4">{asset.description}</p>
 
-                    <div className="mt-4 flex items-center justify-between text-xs text-gray-500">
-                      <span>Seller: {formatAddress(asset.seller)}</span>
-                      {asset.isERC1155 && <span>Qty: {asset.quantity}</span>}
-                    </div>
+                    <div className="mt-auto">
+                        <div className="flex items-center justify-between text-xs text-gray-500 mb-3">
+                            <span>Seller: {formatAddress(asset.seller)}</span>
+                            {asset.isERC1155 && <span>Qty: {asset.quantity}</span>}
+                        </div>
 
-                    <div className="mt-4 flex gap-2">
-                      {asset.seller.toLowerCase() === account?.toLowerCase() ? (
-                        <button
-                          onClick={() => handleCancel(asset.listingId)}
-                          className="flex-1 flex items-center justify-center gap-2 bg-red-500/10 text-red-500 py-2 rounded-lg hover:bg-red-500/20 transition-all"
-                        >
-                          <XCircle size={16} /> Cancel Listing
-                        </button>
-                      ) : (
-                        <button
-                          onClick={() => handleBuy(asset)}
-                          className="flex-1 flex items-center justify-center gap-2 bg-[#00E0FF] text-black font-bold py-2 rounded-lg hover:bg-[#00B8D9] transition-all"
-                        >
-                          <ShoppingCart size={16} /> Buy Now
-                        </button>
-                      )}
+                        {/* BUTTONS GRID */}
+                        <div className="grid grid-cols-2 gap-3">
+                            {/* View Button */}
+                            <button
+                                onClick={() => navigate(`/asset-details/${asset.tokenId}`)}
+                                className="flex items-center justify-center gap-2 bg-[#2A3441] text-white py-2 rounded-lg hover:bg-[#334053] transition-all font-medium text-sm"
+                            >
+                                <Eye size={16} /> View
+                            </button>
 
-                      <a href={`https://gateway.pinata.cloud/ipfs/${asset.ipfsHash}`} target="_blank" rel="noreferrer" className="p-2 bg-gray-800 rounded-lg text-gray-400 hover:text-white">
-                        <ExternalLink size={20} />
-                      </a>
+                            {/* Action Button */}
+                            {asset.seller.toLowerCase() === account?.toLowerCase() ? (
+                                <button
+                                    onClick={() => handleCancel(asset.listingId)}
+                                    className="flex items-center justify-center gap-2 bg-red-500/10 text-red-500 py-2 rounded-lg hover:bg-red-500/20 transition-all font-medium text-sm"
+                                >
+                                    <XCircle size={16} /> Cancel
+                                </button>
+                            ) : (
+                                <button
+                                    onClick={() => handleBuy(asset)}
+                                    className="flex items-center justify-center gap-2 bg-[#00E0FF] text-black py-2 rounded-lg hover:bg-[#00B8D9] transition-all font-bold text-sm"
+                                >
+                                    <ShoppingCart size={16} /> Buy
+                                </button>
+                            )}
+                        </div>
                     </div>
                   </div>
                 </div>
@@ -254,27 +254,44 @@ const Marketplace: React.FC = () => {
             <div className="space-y-4">
               {filtered.map(asset => (
                 <div key={asset.listingId} className="bg-[#1A1F2E] border border-[#2A3441] p-4 rounded-xl flex items-center justify-between">
-                  <div className="flex items-center gap-4">
+                  <div className="flex items-center gap-4 cursor-pointer" onClick={() => navigate(`/asset-details/${asset.tokenId}`)}>
                     <div className="w-16 h-16 bg-black/50 rounded-lg overflow-hidden">
                       {asset.image && <img src={asset.image} className="w-full h-full object-cover" />}
                     </div>
                     <div>
-                      <h3 className="text-white font-bold">{asset.name}</h3>
+                      <h3 className="text-white font-bold hover:text-[#00E0FF] transition-colors">{asset.name}</h3>
                       <p className="text-sm text-gray-400">Seller: {formatAddress(asset.seller)}</p>
                     </div>
                   </div>
-                  <div className="text-right">
+                  <div className="text-right flex flex-col items-end gap-2">
                     <div className="text-[#00E0FF] font-bold text-xl">{asset.priceEth} ETH</div>
                     {asset.isERC1155 && <div className="text-sm text-gray-500">Available: {asset.quantity}</div>}
 
-                    {asset.seller.toLowerCase() !== account?.toLowerCase() && (
-                      <button
-                        onClick={() => handleBuy(asset)}
-                        className="mt-2 text-sm bg-white/10 px-4 py-1 rounded hover:bg-white/20 text-white"
-                      >
-                        Buy
-                      </button>
-                    )}
+                    <div className="flex gap-2 mt-1">
+                        <button
+                            onClick={() => navigate(`/asset-details/${asset.tokenId}`)}
+                            className="text-sm bg-[#2A3441] px-3 py-1.5 rounded hover:bg-[#334053] text-white flex items-center gap-1"
+                        >
+                            <Eye size={14} /> View
+                        </button>
+
+                        {asset.seller.toLowerCase() !== account?.toLowerCase() && (
+                        <button
+                            onClick={() => handleBuy(asset)}
+                            className="text-sm bg-[#00E0FF] px-4 py-1.5 rounded hover:bg-[#00B8D9] text-black font-bold flex items-center gap-1"
+                        >
+                            <ShoppingCart size={14} /> Buy
+                        </button>
+                        )}
+                        {asset.seller.toLowerCase() === account?.toLowerCase() && (
+                            <button
+                                onClick={() => handleCancel(asset.listingId)}
+                                className="text-sm bg-red-500/10 px-4 py-1.5 rounded hover:bg-red-500/20 text-red-500 font-bold"
+                            >
+                                Cancel
+                            </button>
+                        )}
+                    </div>
                   </div>
                 </div>
               ))}

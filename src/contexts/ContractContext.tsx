@@ -65,7 +65,7 @@ interface ContractContextType {
 
 const ContractContext = createContext<ContractContextType | undefined>(undefined);
 
-// --- ABIs (UPDATED WITH getMyAssets) ---
+// --- ABIs (UPDATED) ---
 
 const ERC721_ABI = [
   "function mintAsset(address to, string metadataURI, string name, string description, string ipfsHash) returns (uint256)",
@@ -78,8 +78,9 @@ const ERC721_ABI = [
   "function getTokensByOwner(address owner) view returns (uint256[])",
   "function ownerOf(uint256 tokenId) view returns (address)",
   "function transferFee() view returns (uint256)",
-  // 🔥 ADDED THIS LINE:
-  "function getMyAssets() view returns (tuple(uint256 tokenId, address owner, string uri, tuple(string name, string description, string ipfsHash, uint256 timestamp, address creator) metadata)[])"
+  "function getMyAssets() view returns (tuple(uint256 tokenId, address owner, string uri, tuple(string name, string description, string ipfsHash, uint256 timestamp, address creator) metadata)[])",
+  // ✅ ADDED MISSING FUNCTION
+  "function tokenURI(uint256 tokenId) view returns (string)"
 ];
 
 const ERC1155_ABI = [
@@ -89,8 +90,10 @@ const ERC1155_ABI = [
   "function getAssetMetadata(uint256 tokenId) view returns (tuple(string name, string description, string ipfsHash, uint256 timestamp, address creator, uint256 maxSupply))",
   "function getTokensByOwner(address owner) view returns (uint256[], uint256[])",
   "function balanceOf(address account, uint256 id) view returns (uint256)",
-  // 🔥 ADDED THIS LINE:
-  "function getMyAssets() view returns (tuple(uint256 id, tuple(string name, string description, string ipfsHash, uint256 timestamp, address creator, uint256 maxSupply) metadata, uint256 balance, string uri)[])"
+  "function getMyAssets() view returns (tuple(uint256 id, tuple(string name, string description, string ipfsHash, uint256 timestamp, address creator, uint256 maxSupply) metadata, uint256 balance, string uri)[])",
+  // ✅ ADDED MISSING FUNCTIONS
+  "function uri(uint256 id) view returns (string)",
+  "function totalSupply(uint256 id) view returns (uint256)"
 ];
 
 const MARKETPLACE_ABI = [
