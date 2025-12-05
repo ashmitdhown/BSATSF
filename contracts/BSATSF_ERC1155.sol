@@ -2,13 +2,15 @@
 pragma solidity ^0.8.20;
 
 import "@openzeppelin/contracts/token/ERC1155/ERC1155.sol";
+import "@openzeppelin/contracts/token/ERC1155/extensions/ERC1155Burnable.sol"; // 👈 1. Import Burnable
 import "@openzeppelin/contracts/access/Ownable.sol";
 
 /**
  * @title BSATSF_ERC1155
  * @dev ERC1155 multi-token contract for BSATSF platform
  */
-contract BSATSF_ERC1155 is ERC1155, Ownable {
+// 👈 2. Add ERC1155Burnable inheritance
+contract BSATSF_ERC1155 is ERC1155, ERC1155Burnable, Ownable {
     uint256 private _tokenIdCounter;
     
     // Mapping from token ID to asset metadata
@@ -30,7 +32,7 @@ contract BSATSF_ERC1155 is ERC1155, Ownable {
         uint256 maxSupply;
     }
 
-    // --- NEW: Helper Structs for Frontend ---
+    // --- Helper Structs for Frontend ---
     struct RenderAsset {
         uint256 id;
         AssetMetadata metadata;
@@ -137,6 +139,21 @@ contract BSATSF_ERC1155 is ERC1155, Ownable {
         
         return tokenIds;
     }
+
+    // --- NEW: Custom Burn Logic ---
+    // We override burn to ensure we decrease the tokenSupply mapping
+    function burn(address account, uint256 id, uint256 value) public virtual override {
+        super.burn(account, id, value);
+        // Reduce the tracked supply
+        tokenSupply[id] -= value;
+    }
+
+    function burnBatch(address account, uint256[] memory ids, uint256[] memory values) public virtual override {
+        super.burnBatch(account, ids, values);
+        for (uint256 i = 0; i < ids.length; i++) {
+            tokenSupply[ids[i]] -= values[i];
+        }
+    }
     
     function getAssetMetadata(uint256 tokenId) public view returns (AssetMetadata memory) {
         require(_exists(tokenId), "Token does not exist");
@@ -151,12 +168,12 @@ contract BSATSF_ERC1155 is ERC1155, Ownable {
         return tokenSupply[tokenId] > 0;
     }
 
-    // --- NEW: Get ALL Assets (For Registry/Dashboard) ---
+    // --- Get ALL Assets (For Registry/Dashboard) ---
     function getAllAssets() public view returns (RenderAsset[] memory) {
         uint256 total = _tokenIdCounter;
         uint256 existCount = 0;
         
-        // First count how many exist to size the array
+        // First count how many exist (supply > 0)
         for (uint256 i = 0; i < total; i++) {
             if (_exists(i)) existCount++;
         }
@@ -165,7 +182,6 @@ contract BSATSF_ERC1155 is ERC1155, Ownable {
         uint256 idx = 0;
         for (uint256 i = 0; i < total; i++) {
              if (_exists(i)) {
-                 // Reconstruct the URI string manually as it was done in the event
                  string memory uri = string(abi.encodePacked("https://api.bsatsf.com/metadata/", _toString(i), ".json"));
                  items[idx] = RenderAsset(i, assetMetadata[i], tokenSupply[i], uri);
                  idx++;
@@ -174,8 +190,7 @@ contract BSATSF_ERC1155 is ERC1155, Ownable {
         return items;
     }
 
-    // --- NEW: Get My Assets (For User Persistence) ---
-    // Returns tokens owned by the caller with their specific balances
+    // --- Get My Assets (For User Persistence) ---
     function getMyAssets() public view returns (UserAsset[] memory) {
         uint256 total = _tokenIdCounter;
         uint256 ownedCount = 0;
@@ -199,10 +214,7 @@ contract BSATSF_ERC1155 is ERC1155, Ownable {
         return items;
     }
     
-    /**
-     * @dev Original function: Get all tokens owned by an address with their balances
-     * (Kept for backward compatibility)
-     */
+    // Backward compatibility function
     function getTokensByOwner(address owner) public view returns (uint256[] memory, uint256[] memory) {
         uint256 totalTokens = _tokenIdCounter;
         uint256[] memory tempTokenIds = new uint256[](totalTokens);
