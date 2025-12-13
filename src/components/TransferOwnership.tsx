@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useWeb3 } from '../contexts/Web3Context';
 import { useContracts } from '../contexts/ContractContext';
-import { ArrowRightLeft, Wallet, CheckCircle, AlertCircle, Copy, ExternalLink, DollarSign, Search, Clock, ArrowRight } from 'lucide-react';
+import { ArrowRightLeft, Wallet, CheckCircle, AlertCircle, Copy, ExternalLink, DollarSign, Clock } from 'lucide-react';
 import { ethers } from 'ethers';
 import toast from 'react-hot-toast';
 
@@ -59,7 +59,6 @@ const TransferOwnership: React.FC = () => {
 
       // 1. Fetch ERC-721s
       try {
-        // Use 'any' cast if strict type definitions haven't updated for getMyAssets yet
         const my721s = await (erc721Contract as any).getMyAssets();
         my721s.forEach((token: any) => {
           allAssets.push({
@@ -158,12 +157,15 @@ const TransferOwnership: React.FC = () => {
         setTransferStatus('awaiting');
 
         // ERC-1155 safeTransferFrom: from, to, id, amount, data
+        // Correcting data parameter to empty bytes
+        const data = new Uint8Array(0); 
+        
         tx = await erc1155Contract.safeTransferFrom(
           account,
           recipientAddress,
           selectedAsset.tokenId,
           transferAmount,
-          "0x"
+          data 
         );
       }
 
