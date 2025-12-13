@@ -1,8 +1,8 @@
 import React, { useState, useEffect } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { useWeb3 } from '../contexts/Web3Context';
 import { useContracts } from '../contexts/ContractContext';
-import { Search, ChevronLeft, ChevronRight, Plus, Tag, XCircle, RefreshCw, Trash2 } from 'lucide-react';
+import { Search, ChevronLeft, ChevronRight, Plus, Tag, XCircle, RefreshCw, Trash2, Eye } from 'lucide-react';
 import toast from 'react-hot-toast';
 
 interface Asset {
@@ -27,6 +27,7 @@ let hasGreetedSession = false;
 
 const Dashboard: React.FC = () => {
   const { account, balanceEth, refreshBalance, hideBalance } = useWeb3();
+  const navigate = useNavigate();
   
   const { 
     erc721Contract, 
@@ -46,6 +47,12 @@ const Dashboard: React.FC = () => {
   
   const [currentPage, setCurrentPage] = useState(1);
   const ITEMS_PER_PAGE = 8;
+
+  // --- MODAL STATE ---
+  const [isListModalOpen, setIsListModalOpen] = useState(false);
+  const [listingAsset, setListingAsset] = useState<Asset | null>(null);
+  const [listPrice, setListPrice] = useState('');
+  const [listQuantity, setListQuantity] = useState('1');
 
   // --- Greeting Logic ---
   useEffect(() => {
@@ -167,7 +174,6 @@ const Dashboard: React.FC = () => {
 
   // 🔥 HANDLE DELETE (BURN) LOGIC
   const handleBurnAsset = async (asset: Asset) => {
-    // 1. Safety Checks
     if (asset.forSale) {
         toast.error("Please cancel the listing before deleting this asset.");
         return;
@@ -182,23 +188,19 @@ const Dashboard: React.FC = () => {
     const toastId = toast.loading("Burning asset on blockchain...");
 
     try {
-        // 2. Perform Burn Transaction
         if (asset.type === 'ERC-1155') {
-            // burn(account, id, value)
             const tx = await (erc1155Contract as any).burn(account, asset.tokenId, asset.balance);
             await tx.wait();
         } else {
-            // burn(tokenId)
             const tx = await (erc721Contract as any).burn(asset.tokenId);
             await tx.wait();
         }
         
         toast.success("Asset deleted successfully", { id: toastId });
-        await loadUserAssets(); // Refresh UI
+        await loadUserAssets(); 
         
     } catch (error: any) {
         console.error("Burn failed:", error);
-        // User friendly error mapping
         if (error.message.includes("burn caller is not owner")) {
             toast.error("You do not own this asset", { id: toastId });
         } else if (error.code === 'ACTION_REJECTED') {
@@ -221,24 +223,54 @@ const Dashboard: React.FC = () => {
     }
   };
 
-  const handleListForSale = async (asset: Asset) => {
-      const price = prompt(`Enter price in ETH for ${asset.name}:`);
-      if (!price) return;
+  // ✅ OPEN MODAL
+  const handleListForSale = (asset: Asset) => {
+      setListingAsset(asset);
+      setListPrice('');
+      setListQuantity('1'); // Default to 1
+      setIsListModalOpen(true);
+  };
+
+  // ✅ CONFIRM LISTING WITH BETTER ERROR HANDLING
+  const confirmListing = async () => {
+      if (!listingAsset || !listPrice) {
+          toast.error("Please enter a price");
+          return;
+      }
 
       try {
-          if (asset.type === 'ERC-1155') {
-              const qtyStr = prompt(`How many do you want to sell? (Max: ${asset.balance})`, "1");
-              if(!qtyStr) return;
-              const qty = parseInt(qtyStr);
-              if(qty > (asset.balance || 0)) { toast.error("Insufficient balance"); return; }
+          console.log(`Listing ${listingAsset.type} - Token ID: ${listingAsset.tokenId}`);
+
+          if (listingAsset.type === 'ERC-1155') {
+              const qty = parseInt(listQuantity);
+              if (isNaN(qty) || qty <= 0) { 
+                  toast.error("Invalid quantity"); 
+                  return; 
+              }
+              if (qty > (listingAsset.balance || 0)) { 
+                  toast.error(`Insufficient balance (Max: ${listingAsset.balance})`); 
+                  return; 
+              }
               
-              await listERC1155ForSale(asset.tokenId, qty, price);
+              await listERC1155ForSale(listingAsset.tokenId, qty, listPrice);
           } else {
-              await listERC721ForSale(asset.tokenId, price);
+              // ERC-721
+              await listERC721ForSale(listingAsset.tokenId, listPrice);
           }
-          loadUserAssets();
+          
+          setIsListModalOpen(false);
+          setListingAsset(null);
+          await loadUserAssets();
+          
       } catch (e: any) {
-          toast.error("Listing failed");
+          console.error("Listing Error:", e);
+          if (e.code === 'ACTION_REJECTED') {
+              toast.error("Transaction rejected");
+          } else if (e.message.includes("Marketplace not approved")) {
+              toast.error("Approval failed. Please try again.");
+          } else {
+              toast.error("Listing failed: " + (e.reason || "Unknown error"));
+          }
       }
   };
 
@@ -332,7 +364,7 @@ const Dashboard: React.FC = () => {
                 {displayedAssets.map((asset) => (
                 <div key={asset.id} className="group flex flex-col glass-card bg-[#1A1F2E] border border-gray-800 rounded-xl overflow-hidden hover:border-[#00E0FF] transition-all duration-300 relative">
                     
-                    {/* 🔥 DELETE / BURN BUTTON */}
+                    {/* Delete Button */}
                     <button 
                         onClick={(e) => {
                             e.preventDefault(); 
@@ -390,6 +422,7 @@ const Dashboard: React.FC = () => {
                                  </button>
                              )}
 
+                             {/* ✅ RESTORED LINK: Points to original route to fix 404 */}
                              <Link 
                                 to={`/asset/${asset.tokenId}`}
                                 className="block text-center w-full py-2 bg-[#00E0FF] text-black font-bold rounded-lg hover:bg-[#00B8D9] transition-colors text-sm"
@@ -426,6 +459,68 @@ const Dashboard: React.FC = () => {
 
         </div>
       </div>
+
+      {/* LISTING MODAL */}
+      {isListModalOpen && listingAsset && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 animate-fade-in">
+            <div className="bg-[#1A1F2E] border border-gray-700 rounded-2xl p-6 max-w-md w-full shadow-2xl relative">
+                <button 
+                    onClick={() => setIsListModalOpen(false)}
+                    className="absolute top-4 right-4 text-gray-400 hover:text-white"
+                >
+                    <XCircle size={24} />
+                </button>
+                
+                <h3 className="text-xl font-bold text-white mb-2">List Asset for Sale</h3>
+                <p className="text-gray-400 text-sm mb-6">Set a fixed price for <span className="text-white font-bold">{listingAsset.name}</span></p>
+
+                <div className="space-y-4">
+                    <div>
+                        <label className="block text-sm font-medium text-gray-300 mb-2">Price (ETH)</label>
+                        <input 
+                            type="number" 
+                            value={listPrice}
+                            onChange={(e) => setListPrice(e.target.value)}
+                            placeholder="0.00"
+                            className="w-full bg-[#0F1419] border border-gray-700 rounded-lg px-4 py-3 text-white focus:ring-2 focus:ring-[#00E0FF] outline-none"
+                        />
+                    </div>
+
+                    {listingAsset.type === 'ERC-1155' && (
+                        <div>
+                            <label className="block text-sm font-medium text-gray-300 mb-2">
+                                Quantity (Max: {listingAsset.balance})
+                            </label>
+                            <input 
+                                type="number" 
+                                value={listQuantity}
+                                onChange={(e) => setListQuantity(e.target.value)}
+                                min="1"
+                                max={listingAsset.balance}
+                                className="w-full bg-[#0F1419] border border-gray-700 rounded-lg px-4 py-3 text-white focus:ring-2 focus:ring-[#00E0FF] outline-none"
+                            />
+                        </div>
+                    )}
+
+                    <div className="flex gap-3 mt-6">
+                        <button 
+                            onClick={() => setIsListModalOpen(false)}
+                            className="flex-1 px-4 py-3 bg-gray-800 text-white rounded-lg hover:bg-gray-700 font-bold transition-colors"
+                        >
+                            Cancel
+                        </button>
+                        <button 
+                            onClick={confirmListing}
+                            className="flex-1 px-4 py-3 bg-[#00E0FF] text-black rounded-lg hover:bg-[#00B8D9] font-bold transition-colors"
+                        >
+                            Confirm Listing
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+      )}
+
     </div>
   );
 };

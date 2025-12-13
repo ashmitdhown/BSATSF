@@ -1,15 +1,28 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Search, Download, Copy, ChevronLeft, ChevronRight, User, Globe, RefreshCw } from 'lucide-react';
+import { Search, Download, Copy, ChevronLeft, ChevronRight, User, Globe, RefreshCw, Clock } from 'lucide-react';
 import { useContracts } from '../contexts/ContractContext';
 import { useWeb3 } from '../contexts/Web3Context';
 import { ethers } from 'ethers';
+import toast from 'react-hot-toast';
 
 const TransactionLedger: React.FC = () => {
   const [searchTerm, setSearchTerm] = useState('');
   const { contractAddresses } = useContracts();
   const { provider, account } = useWeb3();
 
-  const [transactions, setTransactions] = useState<Array<{ hash: string; type: string; date: string; from: string; to: string; amount: string; tokenId?: number; status: string }>>([]);
+  // Updated state interface to include rawTime for sorting
+  const [transactions, setTransactions] = useState<Array<{ 
+    hash: string; 
+    type: string; 
+    date: string; 
+    rawTime: number; 
+    from: string; 
+    to: string; 
+    amount: string; 
+    tokenId?: number; 
+    status: string 
+  }>>([]);
+  
   const [isLoading, setIsLoading] = useState(false);
   const [activeTab, setActiveTab] = useState<'personal' | 'public'>('personal');
   const [debugInfo, setDebugInfo] = useState<string>("");
@@ -27,7 +40,7 @@ const TransactionLedger: React.FC = () => {
   const erc721Interface = new ethers.Interface([
     "event AssetMinted(uint256 indexed tokenId, address indexed to, string metadataURI)",
     "event AssetTransferred(uint256 indexed tokenId, address indexed from, address indexed to, uint256 fee)",
-    "event Transfer(address indexed from, address indexed to, uint256 indexed tokenId)" // Standard ERC721 Event
+    "event Transfer(address indexed from, address indexed to, uint256 indexed tokenId)" 
   ]);
 
   const erc1155Interface = new ethers.Interface([
@@ -51,7 +64,7 @@ const TransactionLedger: React.FC = () => {
       setDebugInfo("Fetching block number...");
 
       const current = await provider.getBlockNumber();
-      // 🔥 INCREASED RANGE: Scan last 100,000 blocks (~2 weeks)
+      // Scan last 100,000 blocks
       const fromBlock = Math.max(Number(current) - 100000, 0);
       const toBlock = 'latest';
 
@@ -59,18 +72,39 @@ const TransactionLedger: React.FC = () => {
       setDebugInfo(`Scanning blocks ${fromBlock} - ${current}...`);
 
       const allTx: Array<any> = [];
+      const blockCache = new Map<number, number>();
+
+      // Helper to get block timestamp with caching
+      const getBlockTimestamp = async (blockNum: number) => {
+          if (blockCache.has(blockNum)) return blockCache.get(blockNum) || 0;
+          try {
+              const block = await provider.getBlock(blockNum);
+              const ts = block ? block.timestamp : Math.floor(Date.now() / 1000);
+              blockCache.set(blockNum, ts);
+              return ts;
+          } catch {
+              return Math.floor(Date.now() / 1000);
+          }
+      };
 
       // Helper to format logs
       const processLog = async (log: any, parsed: ethers.LogDescription | null, contractType: string) => {
         if (!parsed) return;
 
+        // 1. Get Timestamp
+        const ts = await getBlockTimestamp(log.blockNumber);
+        const displayDate = new Date(ts * 1000).toLocaleString('en-US', {
+            month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: true
+        });
+
         let txData: any = {
           hash: log.transactionHash,
-          date: new Date().toISOString().split('T')[0],
+          date: displayDate, // Formatted String
+          rawTime: ts,       // Number for sorting
           status: 'Confirmed'
         };
 
-        // 1. ERC721 Events
+        // 2. ERC721 Events
         if (parsed.name === 'AssetMinted') {
           txData.type = 'Mint';
           txData.from = '0x0000000000000000000000000000000000000000';
@@ -78,7 +112,6 @@ const TransactionLedger: React.FC = () => {
           txData.tokenId = Number(parsed.args[0]);
           txData.amount = contractType === 'ERC1155' ? `Qty: ${parsed.args[2]}` : '1 NFT';
         }
-        // Standard Transfer Event (Common in all ERC721)
         else if (parsed.name === 'Transfer') {
           txData.type = 'Transfer';
           txData.from = parsed.args[0];
@@ -101,7 +134,7 @@ const TransactionLedger: React.FC = () => {
           txData.amount = `Qty: ${parsed.args[4]}`;
         }
 
-        // 2. Marketplace Events
+        // 3. Marketplace Events
         else if (parsed.name === 'ItemListed') {
           txData.type = 'Listing';
           txData.from = parsed.args[1];
@@ -129,14 +162,12 @@ const TransactionLedger: React.FC = () => {
         if (txData.type) allTx.push(txData);
       };
 
-      // --- Fetch Logs Manually ---
+      // --- Fetch Logs ---
 
       // 1. ERC721
       if (contractAddresses.ERC721) {
         const logs = await provider.getLogs({ address: contractAddresses.ERC721, fromBlock, toBlock });
-        console.log(`Found ${logs.length} ERC721 logs`);
         for (const log of logs) {
-          // Try parsing with custom events first, then standard Transfer
           let parsed = erc721Interface.parseLog(log);
           await processLog(log, parsed, 'ERC721');
         }
@@ -145,7 +176,6 @@ const TransactionLedger: React.FC = () => {
       // 2. ERC1155
       if (contractAddresses.ERC1155) {
         const logs = await provider.getLogs({ address: contractAddresses.ERC1155, fromBlock, toBlock });
-        console.log(`Found ${logs.length} ERC1155 logs`);
         for (const log of logs) {
           let parsed = erc1155Interface.parseLog(log);
           await processLog(log, parsed, 'ERC1155');
@@ -155,17 +185,17 @@ const TransactionLedger: React.FC = () => {
       // 3. Marketplace
       if (contractAddresses.Marketplace) {
         const logs = await provider.getLogs({ address: contractAddresses.Marketplace, fromBlock, toBlock });
-        console.log(`Found ${logs.length} Marketplace logs`);
         for (const log of logs) {
           let parsed = marketplaceInterface.parseLog(log);
           await processLog(log, parsed, 'Marketplace');
         }
       }
 
-      // Remove duplicates based on Hash + Log Index (roughly)
+      // Filter duplicates & Sort by Time (Newest First)
       const uniqueTx = allTx.filter((v, i, a) => a.findIndex(t => (t.hash === v.hash && t.type === v.type)) === i);
+      uniqueTx.sort((a, b) => b.rawTime - a.rawTime);
 
-      setTransactions(uniqueTx.reverse());
+      setTransactions(uniqueTx);
       setDebugInfo("");
 
     } catch (e: any) {
@@ -204,6 +234,42 @@ const TransactionLedger: React.FC = () => {
     currentPage * ITEMS_PER_PAGE
   );
 
+  // ✅ EXPORT CSV FUNCTION
+  const handleExportCSV = () => {
+    if (filteredTransactions.length === 0) {
+      toast.error("No transactions to export");
+      return;
+    }
+
+    const headers = ["Tx Hash", "Date", "Type", "From", "To", "Amount", "Token ID", "Status"];
+    const csvRows = [headers.join(",")];
+
+    filteredTransactions.forEach(tx => {
+      const row = [
+        tx.hash,
+        `"${tx.date}"`, 
+        tx.type,
+        tx.from,
+        tx.to,
+        `"${tx.amount}"`,
+        tx.tokenId || "",
+        tx.status
+      ];
+      csvRows.push(row.join(","));
+    });
+
+    const csvContent = "data:text/csv;charset=utf-8," + csvRows.join("\n");
+    const encodedUri = encodeURI(csvContent);
+    const link = document.createElement("a");
+    link.setAttribute("href", encodedUri);
+    link.setAttribute("download", "bsatsf_ledger.csv");
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    
+    toast.success("Ledger exported successfully!");
+  };
+
   return (
     <div className="relative w-full min-h-screen overflow-x-hidden bg-[#0F1419]">
       <div className="animate-grid absolute inset-0"></div>
@@ -220,7 +286,12 @@ const TransactionLedger: React.FC = () => {
               >
                 <RefreshCw size={16} className={isLoading ? "animate-spin" : ""} /> Refresh
               </button>
-              <button className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg transition-colors">
+              
+              {/* ✅ UPDATED BUTTON WITH ONCLICK HANDLER */}
+              <button 
+                onClick={handleExportCSV}
+                className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg transition-colors"
+              >
                 <Download size={16} /> Export CSV
               </button>
             </div>
@@ -277,6 +348,7 @@ const TransactionLedger: React.FC = () => {
                   <thead className="bg-[#0F1419] border-b border-[#2A3441]">
                     <tr>
                       <th className="text-left px-6 py-4 text-gray-400 font-medium text-sm">Tx Hash</th>
+                      <th className="text-left px-6 py-4 text-gray-400 font-medium text-sm">Time</th>
                       <th className="text-left px-6 py-4 text-gray-400 font-medium text-sm">Type</th>
                       <th className="text-left px-6 py-4 text-gray-400 font-medium text-sm">From</th>
                       <th className="text-left px-6 py-4 text-gray-400 font-medium text-sm">To</th>
@@ -286,7 +358,7 @@ const TransactionLedger: React.FC = () => {
                   </thead>
                   <tbody className="divide-y divide-[#2A3441]">
                     {displayedTx.length === 0 && (
-                      <tr><td colSpan={6} className="p-10 text-center text-gray-500">
+                      <tr><td colSpan={7} className="p-10 text-center text-gray-500">
                         {activeTab === 'personal' ? "No personal transactions found." : "No transactions found on ledger."}
                       </td></tr>
                     )}
@@ -301,6 +373,12 @@ const TransactionLedger: React.FC = () => {
                               <Copy size={14} />
                             </button>
                           </div>
+                        </td>
+                        <td className="px-6 py-4 text-gray-300 text-sm whitespace-nowrap">
+                            <div className="flex items-center gap-1.5">
+                                <Clock size={14} className="text-gray-500" />
+                                {tx.date}
+                            </div>
                         </td>
                         <td className="px-6 py-4 text-gray-300 text-sm">
                           <span className={`px-2 py-1 rounded text-xs font-bold ${tx.type.includes('Mint') ? 'bg-green-500/20 text-green-400' :

@@ -1,16 +1,16 @@
-// Top-of-file imports cleanup and remove unused variable
 import React, { useState } from 'react';
-import { Link } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 import { HelpCircle } from 'lucide-react';
-// Remove unused Upload icon import
 import { useWeb3 } from '../contexts/Web3Context';
 import { useContracts } from '../contexts/ContractContext';
 import { uploadFileToIPFS, uploadJsonToIPFS, ipfsGatewayUrl, ipfsUri } from '../utils/ipfs';
 import toast from 'react-hot-toast';
 
 const MintAsset: React.FC = () => {
+  const navigate = useNavigate();
   const { account, refreshBalance } = useWeb3();
   const { mintERC721Asset, mintERC1155Asset } = useContracts();
+  
   const [file, setFile] = useState<File | null>(null);
   const [uploading, setUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
@@ -45,6 +45,7 @@ const MintAsset: React.FC = () => {
     try {
       if (!account) return toast.error('Connect wallet');
       if (!assetName || !ipfsHash) return toast.error('Fill required fields');
+      
       const imageUrl = ipfsGatewayUrl(ipfsHash);
       const metadata = {
         name: assetName,
@@ -57,13 +58,16 @@ const MintAsset: React.FC = () => {
         ],
         createdAt: Date.now()
       };
+
       const metaCid = await uploadJsonToIPFS(`${assetName}-metadata`, metadata);
       const metadataURI = ipfsUri(metaCid);
+
       if (tokenType === 'ERC721') {
         const result = await mintERC721Asset(account, metadataURI, assetName, description, ipfsHash, priceEth || undefined);
         if (result) {
           if (refreshBalance) await refreshBalance();
-          // Price handling is done in ContractContext
+          toast.success('Asset Minted Successfully!');
+          navigate('/dashboard'); // Redirect to My Assets
         }
       } else {
         const amt = Number(amount1155) || 1;
@@ -73,7 +77,8 @@ const MintAsset: React.FC = () => {
           toast.success('Minting submitted');
           await tx.wait();
           if (refreshBalance) await refreshBalance();
-          toast.success('ERC-1155 minted');
+          toast.success('ERC-1155 minted successfully!');
+          navigate('/dashboard'); // Redirect to My Assets
         }
       }
     } catch (e: any) {
