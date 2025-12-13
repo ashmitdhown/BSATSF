@@ -1,6 +1,6 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { HelpCircle } from 'lucide-react';
+import { HelpCircle, RefreshCw } from 'lucide-react';
 import { useWeb3 } from '../contexts/Web3Context';
 import { useContracts } from '../contexts/ContractContext';
 import { uploadFileToIPFS, uploadJsonToIPFS, ipfsGatewayUrl, ipfsUri } from '../utils/ipfs';
@@ -16,14 +16,36 @@ const MintAsset: React.FC = () => {
   const [uploadProgress, setUploadProgress] = useState(0);
   const [ipfsHash, setIpfsHash] = useState('');
   const [assetName, setAssetName] = useState('');
+  
+  // ✅ ID State
   const [assetId, setAssetId] = useState('');
   const [legalId, setLegalId] = useState('');
+  
   const [description, setDescription] = useState('');
   const [isTransferable, setIsTransferable] = useState(true);
   const [tokenType, setTokenType] = useState<'ERC721' | 'ERC1155'>('ERC721');
   const [amount1155, setAmount1155] = useState<number>(1);
   const [maxSupply1155, setMaxSupply1155] = useState<number>(0);
   const [priceEth, setPriceEth] = useState<string>('');
+
+  // ✅ GENERATE UNIQUE IDs
+  const generateIds = () => {
+    const timestamp = Date.now().toString(36).toUpperCase().slice(-6);
+    const random1 = Math.random().toString(36).substring(2, 6).toUpperCase();
+    const random2 = Math.random().toString(36).substring(2, 6).toUpperCase();
+    const year = new Date().getFullYear();
+
+    // Format: AST-[TIMESTAMP]-[RAND]
+    setAssetId(`AST-${timestamp}-${random1}`);
+    
+    // Format: LEG-[YEAR]-[RAND]-[RAND]
+    setLegalId(`LEG-${year}-${random1}-${random2}`);
+  };
+
+  // Generate on mount
+  useEffect(() => {
+    generateIds();
+  }, []);
 
   const handleFileUpload = async (selectedFile: File) => {
     try {
@@ -67,7 +89,7 @@ const MintAsset: React.FC = () => {
         if (result) {
           if (refreshBalance) await refreshBalance();
           toast.success('Asset Minted Successfully!');
-          navigate('/dashboard'); // Redirect to My Assets
+          navigate('/dashboard'); 
         }
       } else {
         const amt = Number(amount1155) || 1;
@@ -78,7 +100,7 @@ const MintAsset: React.FC = () => {
           await tx.wait();
           if (refreshBalance) await refreshBalance();
           toast.success('ERC-1155 minted successfully!');
-          navigate('/dashboard'); // Redirect to My Assets
+          navigate('/dashboard');
         }
       }
     } catch (e: any) {
@@ -140,8 +162,12 @@ const MintAsset: React.FC = () => {
                     <input className="w-full rounded-lg p-2.5 text-sm bg-[#101622] border-[#3b4354] text-[#F0F0F0] focus:border-[#135bec] focus:ring-1 focus:ring-[#135bec]" placeholder="e.g. Real Estate Title Deed" type="text" value={assetName} onChange={(e) => setAssetName(e.target.value)} />
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-[#A0A0A0] mb-2">Asset ID</label>
-                    <input className="w-full rounded-lg p-2.5 text-sm bg-[#101622] border-[#3b4354] text-[#F0F0F0] focus:border-[#135bec] focus:ring-1 focus:ring-[#135bec]" placeholder="Unique identifier" type="text" value={assetId} onChange={(e) => setAssetId(e.target.value)} />
+                    <div className="flex justify-between mb-2">
+                        <label className="text-sm font-medium text-[#A0A0A0]">Asset ID</label>
+                        <button onClick={generateIds} className="text-[#00E0FF] hover:text-white transition-colors" title="Regenerate ID"><RefreshCw size={14}/></button>
+                    </div>
+                    {/* ✅ READ-ONLY INPUT FOR ASSET ID */}
+                    <input className="w-full rounded-lg p-2.5 text-sm bg-[#0a0e17] border-[#3b4354] text-gray-400 font-mono cursor-not-allowed" readOnly type="text" value={assetId} />
                   </div>
                 </div>
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
@@ -166,8 +192,12 @@ const MintAsset: React.FC = () => {
                   )}
                 </div>
                 <div>
-                  <label className="flex items-center gap-2 text-sm font-medium text-[#A0A0A0] mb-2">Legal Identifier <span title="Enter the official legal reference number" className="cursor-help"><HelpCircle size={16} className="text-[#A0A0A0]" /></span></label>
-                  <input className="w-full rounded-lg p-2.5 text-sm bg-[#101622] border-[#3b4354] text-[#F0F0F0] focus:border-[#135bec] focus:ring-1 focus:ring-[#135bec]" placeholder="e.g. DEED-451-B-2024" type="text" value={legalId} onChange={(e) => setLegalId(e.target.value)} />
+                  <div className="flex justify-between mb-2">
+                    <label className="flex items-center gap-2 text-sm font-medium text-[#A0A0A0]">Legal Identifier <span title="Auto-generated unique legal reference" className="cursor-help"><HelpCircle size={16} className="text-[#A0A0A0]" /></span></label>
+                    <button onClick={generateIds} className="text-[#00E0FF] hover:text-white transition-colors" title="Regenerate ID"><RefreshCw size={14}/></button>
+                  </div>
+                  {/* ✅ READ-ONLY INPUT FOR LEGAL ID */}
+                  <input className="w-full rounded-lg p-2.5 text-sm bg-[#0a0e17] border-[#3b4354] text-gray-400 font-mono cursor-not-allowed" readOnly type="text" value={legalId} />
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-[#A0A0A0] mb-2">Asset Description</label>
