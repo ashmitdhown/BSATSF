@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useWeb3 } from '../contexts/Web3Context';
 import { useContracts } from '../contexts/ContractContext';
-import { Search, ChevronLeft, ChevronRight, Plus, Tag, XCircle, RefreshCw, Trash2, Eye } from 'lucide-react';
+import { Search, ChevronLeft, ChevronRight, Plus, Tag, XCircle, RefreshCw, Trash2, Eye, Download } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { ethers } from 'ethers';
 
@@ -24,8 +24,10 @@ interface Asset {
   txHash?: string;
 }
 
+// 🔥 MODULE-LEVEL VARIABLE for Session Greeting
 let hasGreetedSession = false;
 
+// ☠️ "Zero-One" Address - Acts as a burn address but bypasses MetaMask "Dead Address" warnings
 const BURN_ADDRESS = "0x0000000000000000000000000000000000000001";
 
 const Dashboard: React.FC = () => {
@@ -207,7 +209,42 @@ const Dashboard: React.FC = () => {
     }
   };
 
-  // handling burning of assets
+  // 🔥 HANDLE DOWNLOAD ASSET
+  const handleDownload = async (imageUrl: string, fileName: string) => {
+    const toastId = toast.loading("Downloading asset...");
+    try {
+      // 1. Fetch the image as a blob
+      const response = await fetch(imageUrl);
+      if (!response.ok) throw new Error("Network response was not ok");
+      const blob = await response.blob();
+
+      // 2. Create a temporary URL
+      const url = window.URL.createObjectURL(blob);
+
+      // 3. Create a temporary anchor element
+      const a = document.createElement('a');
+      a.style.display = 'none';
+      a.href = url;
+      // Use provided name or default to 'asset.png'
+      a.download = fileName || 'asset.png';
+
+      // 4. Trigger download
+      document.body.appendChild(a);
+      a.click();
+
+      // 5. Cleanup
+      window.URL.revokeObjectURL(url);
+      document.body.removeChild(a);
+      toast.success("Download complete", { id: toastId });
+    } catch (error) {
+      console.error("Download failed:", error);
+      // Fallback: Open in new tab if programmatic download fails (e.g. CORS)
+      window.open(imageUrl, '_blank');
+      toast.error("Download failed (CORS). Opened in new tab.", { id: toastId });
+    }
+  };
+
+  // 🔥 HANDLE BURN ASSET (Bypasses MetaMask Warning)
   const handleBurnAsset = async (asset: Asset) => {
     if (asset.forSale) {
       toast.error("Please cancel the listing first.");
@@ -218,7 +255,7 @@ const Dashboard: React.FC = () => {
       return;
     }
 
-    // resolving addresses
+    // Resolve Address
     let contractAddress = "";
     if (asset.type === 'ERC-721') {
       contractAddress = contractAddresses?.ERC721 || (erc721Contract as any)?.target || (erc721Contract as any)?.address;
@@ -419,7 +456,20 @@ const Dashboard: React.FC = () => {
               {displayedAssets.map((asset) => (
                 <div key={asset.id} className="group flex flex-col glass-card bg-[#1A1F2E] border border-gray-800 rounded-xl overflow-hidden hover:border-[#00E0FF] transition-all duration-300 relative">
 
-                  {/* Delete Button */}
+                  {/* ✅ Download Button (Transparent Cyan Glass) */}
+                  <button
+                    onClick={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      handleDownload(asset.image, `${asset.name.replace(/\s+/g, '_')}.png`);
+                    }}
+                    className="absolute top-3 left-3 z-10 p-2 bg-[#00E0FF]/20 backdrop-blur-md rounded-lg text-[#00E0FF] hover:bg-[#00E0FF] hover:text-[#0F1419] border border-[#00E0FF]/30 transition-all opacity-0 group-hover:opacity-100"
+                    title="Download Asset"
+                  >
+                    <Download size={16} />
+                  </button>
+
+                  {/* Delete Button (Red Glass) */}
                   <button
                     onClick={(e) => {
                       e.preventDefault();
