@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import { useContracts } from '../contexts/ContractContext';
 import { useWeb3 } from '../contexts/Web3Context';
 import { 
@@ -22,11 +22,12 @@ import toast from 'react-hot-toast';
 
 const AssetDetails: React.FC = () => {
     // 1. Get both ID and Standard from URL parameters
-    const { standard, id } = useParams<{ standard: string; id: string }>();
+    const { id } = useParams<{ id: string }>();
     const navigate = useNavigate();
 
-    const { erc721Contract, erc1155Contract, getMarketplaceListings, contractAddresses } = useContracts();
+    const { erc721Contract, erc1155Contract, getMarketplaceListings, contractAddresses, getAssetMetadata } = useContracts();
     const { account } = useWeb3();
+    const location = useLocation();
 
     const [asset, setAsset] = useState<any>(null);
     const [loading, setLoading] = useState(true);
@@ -41,8 +42,8 @@ const AssetDetails: React.FC = () => {
     const [creationDate, setCreationDate] = useState<string | null>(null);
 
     // 2. ROBUST TYPE CHECKING
-    const isERC1155 = standard?.toUpperCase().includes('1155') || false;
-    const assetLabel = isERC1155 ? 'ERC-1155' : 'ERC-721';
+    const [is1155, setIs1155] = useState<boolean>(false);
+    const assetLabel = is1155 ? 'ERC-1155' : 'ERC-721';
 
     // Helper to extract traits (OpenSea Standard)
     const getAttribute = (metadata: any, key: string) => {
@@ -61,6 +62,25 @@ const AssetDetails: React.FC = () => {
     const copyToClipboard = (text: string) => {
         navigator.clipboard.writeText(text);
         toast.success('Copied to clipboard');
+    };
+
+    const deriveImageUrl = (meta: any) => {
+        const raw = meta?.image || meta?.image_url || meta?.imageURI || meta?.ipfsHash || meta?.properties?.image || meta?.properties?.image_url || '';
+        if (!raw) return '';
+        if (typeof raw !== 'string') return '';
+        if (raw.startsWith('ipfs://')) return raw.replace('ipfs://', 'https://gateway.pinata.cloud/ipfs/');
+        if (raw.startsWith('http')) return raw;
+        return `https://gateway.pinata.cloud/ipfs/${raw}`;
+    };
+    const deriveName = (meta: any) => {
+        if (!meta) return '';
+        if (meta.name && typeof meta.name === 'string' && meta.name.length > 0) return meta.name;
+        if (meta.properties && typeof meta.properties.name === 'string') return meta.properties.name;
+        if (Array.isArray(meta.attributes)) {
+            const found = meta.attributes.find((a: any) => a.trait_type?.toLowerCase() === 'name');
+            if (found && typeof found.value === 'string') return found.value;
+        }
+        return '';
     };
 
     useEffect(() => {
@@ -87,51 +107,60 @@ const AssetDetails: React.FC = () => {
                 let fetchedSupply: string = '';
 
                 // --- 1. FETCH ASSET DATA ---
-                if (isERC1155) {
-                    try {
-                        const supply = await (erc1155Contract as any).totalSupply(tokenId);
-                        if (supply <= 0) throw new Error("Supply is zero");
-                        
-                        fetchedSupply = supply.toString();
-                        const uri = await erc1155Contract.uri(tokenId);
-                        
-                        fetchedMetadata = { name: `Asset #${id}`, description: '', image: '' };
-                        try {
-                            const idHex = tokenId.toString(16).padStart(64, '0');
-                            const cleanUri = uri.replace('{id}', idHex).replace('ipfs://', 'https://gateway.pinata.cloud/ipfs/');
-                            const response = await fetch(cleanUri);
-                            if (response.ok) fetchedMetadata = await response.json();
-                        } catch (err) { console.warn("IPFS Fetch Error", err); }
+                // Determine preferred standard from navigation state
+                const preferred1155 = (location.state as any)?.isERC1155 === true;
+                let detected1155 = false;
 
-                    } catch (e: any) {
-                        throw new Error(`ERC-1155 Token #${id} not found.`);
-                    }
-                } else {
-                    try {
-                        const owner = await erc721Contract.ownerOf(tokenId);
-                        fetchedOwner = owner;
-                        const uri = await erc721Contract.tokenURI(tokenId);
-                        
-                        fetchedMetadata = { name: `Asset #${id}`, description: '', image: '' };
+                const fetch721 = async () => {
+                    const owner = await erc721Contract.ownerOf(tokenId);
+                    fetchedOwner = owner;
+                    const meta = await getAssetMetadata(Number(id), 'ERC721');
+                    fetchedMetadata = meta || { name: `Asset #${id}`, description: '', image: '' };
+                    if (!deriveImageUrl(fetchedMetadata)) {
                         try {
-                            const gatewayUri = uri.replace('ipfs://', 'https://gateway.pinata.cloud/ipfs/');
+                            const uri = await erc721Contract.tokenURI(tokenId);
+                            const gatewayUri = (uri as string).replace('ipfs://', 'https://gateway.pinata.cloud/ipfs/');
                             const response = await fetch(gatewayUri);
                             if (response.ok) fetchedMetadata = await response.json();
-                        } catch (err) { console.warn("IPFS Fetch Error", err); }
-
-                    } catch (e: any) {
-                        throw new Error(`ERC-721 Token #${id} not found.`);
+                        } catch {}
                     }
+                };
+
+                const fetch1155 = async () => {
+                    detected1155 = true;
+                    try {
+                        const supply = await (erc1155Contract as any).totalSupply(tokenId);
+                        fetchedSupply = supply?.toString?.() || '';
+                    } catch {}
+                    const meta = await getAssetMetadata(Number(id), 'ERC1155');
+                    fetchedMetadata = meta || { name: `Asset #${id}`, description: '', image: '' };
+                    if (!deriveImageUrl(fetchedMetadata)) {
+                        try {
+                            const uri = await erc1155Contract.uri(tokenId);
+                            const idHex = tokenId.toString(16).padStart(64, '0');
+                            const cleanUri = (uri as string).replace('{id}', idHex).replace('ipfs://', 'https://gateway.pinata.cloud/ipfs/');
+                            const response = await fetch(cleanUri);
+                            if (response.ok) fetchedMetadata = await response.json();
+                        } catch {}
+                    }
+                };
+
+                if (preferred1155) {
+                    try { await fetch1155(); }
+                    catch { await fetch721(); detected1155 = false; }
+                } else {
+                    try { await fetch721(); }
+                    catch { await fetch1155(); }
                 }
 
                 // --- 2. FETCH CREATION TRANSACTION (LOGS) ---
                 if (isMounted) {
                     try {
                         const zeroAddress = '0x0000000000000000000000000000000000000000';
-                        const contract = isERC1155 ? erc1155Contract : erc721Contract;
+                        const contract = detected1155 ? erc1155Contract : erc721Contract;
                         let filter;
 
-                        if (isERC1155) {
+                        if (detected1155) {
                             // TransferSingle(operator, from, to, id, value)
                             // We look for transfers FROM zero address TO anyone
                             filter = contract.filters.TransferSingle(null, zeroAddress, null, tokenId);
@@ -167,16 +196,42 @@ const AssetDetails: React.FC = () => {
                 // --- 3. DATA PREPARATION ---
                 const legalIdFound = getAttribute(fetchedMetadata, 'Legal ID');
                 const customAssetId = getAttribute(fetchedMetadata, 'Asset ID');
+                const displayName = deriveName(fetchedMetadata) || `Asset #${id}`;
 
                 if (isMounted) {
+                    setIs1155(detected1155);
+                    let img = deriveImageUrl(fetchedMetadata);
+                    if (!img && !detected1155) {
+                        try {
+                            const uri = await erc721Contract.tokenURI(tokenId);
+                            const gatewayUri = uri.replace('ipfs://', 'https://gateway.pinata.cloud/ipfs/');
+                            const res = await fetch(gatewayUri);
+                            if (res.ok) {
+                                const m = await res.json();
+                                img = deriveImageUrl(m);
+                            }
+                        } catch {}
+                    }
+                    if (!img && detected1155) {
+                        try {
+                            const uri = await erc1155Contract.uri(tokenId);
+                            const idHex = tokenId.toString(16).padStart(64, '0');
+                            const cleanUri = uri.replace('{id}', idHex).replace('ipfs://', 'https://gateway.pinata.cloud/ipfs/');
+                            const res = await fetch(cleanUri);
+                            if (res.ok) {
+                                const m = await res.json();
+                                img = deriveImageUrl(m);
+                            }
+                        } catch {}
+                    }
                     setAsset({
                         id: tokenId.toString(),
                         customId: customAssetId,
                         owner: fetchedOwner,
                         totalSupply: fetchedSupply,
-                        name: fetchedMetadata.name || `Asset #${id}`,
+                        name: displayName,
                         description: fetchedMetadata.description || "No description",
-                        image: fetchedMetadata.image ? fetchedMetadata.image.replace('ipfs://', 'https://gateway.pinata.cloud/ipfs/') : '',
+                        image: img,
                         legalId: legalIdFound || "N/A"
                     });
                 }
@@ -184,7 +239,7 @@ const AssetDetails: React.FC = () => {
                 // --- 4. MARKETPLACE CHECK ---
                 if (contractAddresses) {
                     const listings = await getMarketplaceListings();
-                    const targetAddr = isERC1155 ? contractAddresses.ERC1155 : contractAddresses.ERC721;
+                    const targetAddr = detected1155 ? contractAddresses.ERC1155 : contractAddresses.ERC721;
                     
                     if (targetAddr) {
                         const activeListing = listings.find(l => 
@@ -218,7 +273,7 @@ const AssetDetails: React.FC = () => {
 
         fetchAssetDetails();
         return () => { isMounted = false; clearTimeout(timer); };
-    }, [id, standard, erc721Contract, erc1155Contract, getMarketplaceListings, contractAddresses, isERC1155]);
+    }, [id, erc721Contract, erc1155Contract, getMarketplaceListings, contractAddresses]);
 
     if (loading) {
         return (
@@ -247,7 +302,7 @@ const AssetDetails: React.FC = () => {
     const safeOwner = asset.owner ? asset.owner.slice(2, 8).toUpperCase() : 'MULT';
     const legalIdentifier = asset.legalId !== "N/A" 
         ? asset.legalId 
-        : `BSAT-${isERC1155 ? '1155' : '721'}-${asset.id}-${safeOwner}`;
+        : `BSAT-${is1155 ? '1155' : '721'}-${asset.id}-${safeOwner}`;
 
     const displayAssetId = asset.customId || `#${asset.id}`;
 
@@ -263,7 +318,20 @@ const AssetDetails: React.FC = () => {
                     <div className="space-y-6">
                         <div className="aspect-square bg-[#1A1F2E] rounded-2xl border border-gray-700 overflow-hidden relative shadow-2xl flex items-center justify-center">
                             {asset.image ? (
-                                <img src={asset.image} alt={asset.name} className="w-full h-full object-cover" />
+                                <img 
+                                    src={asset.image} 
+                                    alt={asset.name} 
+                                    className="w-full h-full object-cover"
+                                    onError={(e) => {
+                                        const target = e.currentTarget as HTMLImageElement;
+                                        if (!target.dataset.fallback) {
+                                            target.dataset.fallback = '1';
+                                            target.src = asset.image.replace('https://gateway.pinata.cloud/ipfs/', 'https://ipfs.io/ipfs/');
+                                        } else {
+                                            target.style.display = 'none';
+                                        }
+                                    }}
+                                />
                             ) : (
                                 <div className="text-gray-500 flex flex-col items-center"><div className="text-6xl mb-4">🖼️</div><p>No Image Data</p></div>
                             )}
@@ -321,7 +389,7 @@ const AssetDetails: React.FC = () => {
                             </div>
                             
                             {/* ERC-1155 Total Supply */}
-                            {isERC1155 && (
+                            {is1155 && (
                                 <div className="bg-[#1A1F2E] p-4 rounded-xl border border-gray-800 col-span-2">
                                     <div className="flex items-center gap-2 text-gray-400 mb-1 text-sm"><Database size={16} /> Total Supply</div>
                                     <div className="font-mono text-xl text-white">{asset.totalSupply} Units</div>
