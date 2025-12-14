@@ -47,7 +47,7 @@ const Marketplace: React.FC = () => {
             ...l,
             name: meta?.name || `Asset #${l.tokenId}`,
             description: meta?.description || 'No description available',
-            image: meta?.ipfsHash ? `https://gateway.pinata.cloud/ipfs/${meta.ipfsHash}` : '',
+            image: deriveImageUrl(meta),
             ipfsHash: meta?.ipfsHash || '',
             timestamp: meta?.timestamp || Date.now(),
           } as DisplayListing;
@@ -124,6 +124,14 @@ const Marketplace: React.FC = () => {
   });
 
   const formatAddress = (addr: string) => `${addr.slice(0, 6)}...${addr.slice(-4)}`;
+  const deriveImageUrl = (meta: any) => {
+    const raw = meta?.image || meta?.ipfsHash || '';
+    if (!raw) return '';
+    if (typeof raw !== 'string') return '';
+    if (raw.startsWith('ipfs://')) return raw.replace('ipfs://', 'https://gateway.pinata.cloud/ipfs/');
+    if (raw.startsWith('http')) return raw;
+    return `https://gateway.pinata.cloud/ipfs/${raw}`;
+  };
 
   return (
     <div className="relative w-full min-h-screen overflow-x-hidden bg-[#0F1419]">
@@ -191,8 +199,23 @@ const Marketplace: React.FC = () => {
               {filtered.map((asset) => (
                 <div key={asset.listingId} className="bg-[#1A1F2E] border border-[#2A3441] rounded-xl overflow-hidden hover:border-[#00E0FF] transition-colors flex flex-col">
                   {/* Image Area */}
-                  <div className="h-48 bg-black/50 flex items-center justify-center relative cursor-pointer" onClick={() => navigate(`/asset-details/${asset.tokenId}`)}>
-                    {asset.image ? <img src={asset.image} alt={asset.name} className="h-full w-full object-cover" /> : <span className="text-gray-500">No Image</span>}
+                  <div className="h-48 bg-black/50 flex items-center justify-center relative cursor-pointer" onClick={() => navigate(`/asset/${asset.tokenId}`, { state: { isERC1155: asset.isERC1155 } })}>
+                    {asset.image ? (
+                      <img 
+                        src={asset.image} 
+                        alt={asset.name} 
+                        className="h-full w-full object-cover" 
+                        onError={(e) => {
+                          const t = e.currentTarget as HTMLImageElement;
+                          if (!t.dataset.fallback) {
+                            t.dataset.fallback = '1';
+                            t.src = asset.image.replace('https://gateway.pinata.cloud/ipfs/', 'https://ipfs.io/ipfs/');
+                          } else {
+                            t.style.display = 'none';
+                          }
+                        }}
+                      />
+                    ) : <span className="text-gray-500">No Image</span>}
                     <div className="absolute top-2 right-2 bg-black/70 px-2 py-1 rounded text-xs text-white">
                       {asset.isERC1155 ? 'ERC-1155' : 'ERC-721'}
                     </div>
@@ -201,7 +224,7 @@ const Marketplace: React.FC = () => {
                   {/* Content Area */}
                   <div className="p-4 flex flex-col flex-grow">
                     <div className="flex justify-between items-start">
-                      <h3 className="text-white font-bold text-lg truncate cursor-pointer hover:text-[#00E0FF]" onClick={() => navigate(`/asset-details/${asset.tokenId}`)}>
+                      <h3 className="text-white font-bold text-lg truncate cursor-pointer hover:text-[#00E0FF]" onClick={() => navigate(`/asset/${asset.tokenId}`, { state: { isERC1155: asset.isERC1155 } })}>
                         {asset.name}
                       </h3>
                       <span className="text-[#00E0FF] font-mono font-bold">{asset.priceEth} ETH</span>
@@ -219,7 +242,7 @@ const Marketplace: React.FC = () => {
                         <div className="grid grid-cols-2 gap-3">
                             {/* View Button */}
                             <button
-                                onClick={() => navigate(`/asset-details/${asset.tokenId}`)}
+                                onClick={() => navigate(`/asset/${asset.tokenId}`, { state: { isERC1155: asset.isERC1155 } })}
                                 className="flex items-center justify-center gap-2 bg-[#2A3441] text-white py-2 rounded-lg hover:bg-[#334053] transition-all font-medium text-sm"
                             >
                                 <Eye size={16} /> View
@@ -254,9 +277,23 @@ const Marketplace: React.FC = () => {
             <div className="space-y-4">
               {filtered.map(asset => (
                 <div key={asset.listingId} className="bg-[#1A1F2E] border border-[#2A3441] p-4 rounded-xl flex items-center justify-between">
-                  <div className="flex items-center gap-4 cursor-pointer" onClick={() => navigate(`/asset-details/${asset.tokenId}`)}>
+                  <div className="flex items-center gap-4 cursor-pointer" onClick={() => navigate(`/asset/${asset.tokenId}`, { state: { isERC1155: asset.isERC1155 } })}>
                     <div className="w-16 h-16 bg-black/50 rounded-lg overflow-hidden">
-                      {asset.image && <img src={asset.image} className="w-full h-full object-cover" />}
+                      {asset.image && (
+                        <img 
+                          src={asset.image} 
+                          className="w-full h-full object-cover"
+                          onError={(e) => {
+                            const t = e.currentTarget as HTMLImageElement;
+                            if (!t.dataset.fallback) {
+                              t.dataset.fallback = '1';
+                              t.src = asset.image.replace('https://gateway.pinata.cloud/ipfs/', 'https://ipfs.io/ipfs/');
+                            } else {
+                              t.style.display = 'none';
+                            }
+                          }}
+                        />
+                      )}
                     </div>
                     <div>
                       <h3 className="text-white font-bold hover:text-[#00E0FF] transition-colors">{asset.name}</h3>

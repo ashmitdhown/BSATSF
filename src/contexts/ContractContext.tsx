@@ -80,7 +80,9 @@ const ERC721_ABI = [
   "function transferFee() view returns (uint256)",
   "function getMyAssets() view returns (tuple(uint256 tokenId, address owner, string uri, tuple(string name, string description, string ipfsHash, uint256 timestamp, address creator) metadata)[])",
   // ✅ ADDED MISSING FUNCTION
-  "function tokenURI(uint256 tokenId) view returns (string)"
+  "function tokenURI(uint256 tokenId) view returns (string)",
+  // ✅ EVENTS FOR LOG QUERYING
+  "event Transfer(address indexed from, address indexed to, uint256 indexed tokenId)"
 ];
 
 const ERC1155_ABI = [
@@ -93,7 +95,9 @@ const ERC1155_ABI = [
   "function getMyAssets() view returns (tuple(uint256 id, tuple(string name, string description, string ipfsHash, uint256 timestamp, address creator, uint256 maxSupply) metadata, uint256 balance, string uri)[])",
   // ✅ ADDED MISSING FUNCTIONS
   "function uri(uint256 id) view returns (string)",
-  "function totalSupply(uint256 id) view returns (uint256)"
+  "function totalSupply(uint256 id) view returns (uint256)",
+  // ✅ EVENTS FOR LOG QUERYING
+  "event TransferSingle(address indexed operator, address indexed from, address indexed to, uint256 indexed id, uint256 value)"
 ];
 
 const MARKETPLACE_ABI = [

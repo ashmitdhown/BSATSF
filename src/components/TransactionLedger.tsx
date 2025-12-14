@@ -354,6 +354,7 @@ const TransactionLedger: React.FC = () => {
                       <th className="text-left px-6 py-4 text-gray-400 font-medium text-sm">To</th>
                       <th className="text-left px-6 py-4 text-gray-400 font-medium text-sm">Value/Info</th>
                       <th className="text-left px-6 py-4 text-gray-400 font-medium text-sm">Status</th>
+                      <th className="text-left px-6 py-4 text-gray-400 font-medium text-sm">Explorer</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-[#2A3441]">
@@ -403,6 +404,16 @@ const TransactionLedger: React.FC = () => {
                           <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-900/50 text-green-400">
                             {tx.status}
                           </span>
+                        </td>
+                        <td className="px-6 py-4">
+                          <a 
+                            href={`${explorerBase}/tx/${tx.hash}`} 
+                            target="_blank" 
+                            rel="noreferrer" 
+                            className="text-[#00E0FF] hover:underline text-sm"
+                          >
+                            View on Etherscan
+                          </a>
                         </td>
                       </tr>
                     ))}

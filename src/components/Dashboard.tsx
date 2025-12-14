@@ -20,6 +20,7 @@ interface Asset {
   priceEth?: string; 
   forSale?: boolean; 
   listingId?: number;
+  txHash?: string;
 }
 
 // 🔥 MODULE-LEVEL VARIABLE for Session Greeting
@@ -108,6 +109,16 @@ const Dashboard: React.FC = () => {
 
       const myAssets: Asset[] = [];
 
+      // Helper: image derive
+      const deriveImageUrl = (meta: any) => {
+        const raw = meta?.image || meta?.ipfsHash || '';
+        if (!raw) return '';
+        if (typeof raw !== 'string') return '';
+        if (raw.startsWith('ipfs://')) return raw.replace('ipfs://', 'https://gateway.pinata.cloud/ipfs/');
+        if (raw.startsWith('http')) return raw;
+        return `https://gateway.pinata.cloud/ipfs/${raw}`;
+      };
+
       // Fetch 721s
       try {
         const my721s = await (erc721Contract as any).getMyAssets();
@@ -124,7 +135,7 @@ const Dashboard: React.FC = () => {
                 owner: account,
                 creator: item.metadata.creator,
                 type: 'ERC-721',
-                image: `https://gateway.pinata.cloud/ipfs/${item.metadata.ipfsHash}`,
+                image: deriveImageUrl(item.metadata),
                 ipfsHash: item.metadata.ipfsHash,
                 timestamp: Number(item.metadata.timestamp),
                 priceEth: listInfo?.priceEth,
@@ -150,7 +161,7 @@ const Dashboard: React.FC = () => {
                 owner: account,
                 creator: item.metadata.creator,
                 type: 'ERC-1155',
-                image: `https://gateway.pinata.cloud/ipfs/${item.metadata.ipfsHash}`,
+                image: deriveImageUrl(item.metadata),
                 ipfsHash: item.metadata.ipfsHash,
                 timestamp: Number(item.metadata.timestamp),
                 balance: Number(item.balance),
@@ -162,7 +173,65 @@ const Dashboard: React.FC = () => {
       } catch (e) { console.warn("Could not fetch 1155s", e); }
 
       myAssets.sort((a, b) => b.timestamp - a.timestamp);
-      setAssets(myAssets);
+      // Enrich: fetch creation tx hash and resolve missing image via token URI (best-effort)
+      const zeroAddress = '0x0000000000000000000000000000000000000000';
+      try {
+        const enriched = await Promise.all(myAssets.map(async (a) => {
+          try {
+            // Resolve missing image from token URI
+            if (!a.image || a.image.length === 0) {
+              if (a.type === 'ERC-721') {
+                try {
+                  const uri = await (erc721Contract as any).tokenURI(BigInt(a.tokenId));
+                  const gatewayUri = (uri as string).replace('ipfs://', 'https://gateway.pinata.cloud/ipfs/');
+                  const res = await fetch(gatewayUri);
+                  if (res.ok) {
+                    const meta = await res.json();
+                    const raw = meta?.image || meta?.ipfsHash || '';
+                    if (typeof raw === 'string' && raw.length > 0) {
+                      a.image = raw.startsWith('ipfs://') ? raw.replace('ipfs://', 'https://gateway.pinata.cloud/ipfs/') :
+                               raw.startsWith('http') ? raw : `https://gateway.pinata.cloud/ipfs/${raw}`;
+                    }
+                  }
+                } catch {}
+              } else {
+                try {
+                  const uri = await (erc1155Contract as any).uri(BigInt(a.tokenId));
+                  const idHex = BigInt(a.tokenId).toString(16).padStart(64, '0');
+                  const cleanUri = (uri as string).replace('{id}', idHex).replace('ipfs://', 'https://gateway.pinata.cloud/ipfs/');
+                  const res = await fetch(cleanUri);
+                  if (res.ok) {
+                    const meta = await res.json();
+                    const raw = meta?.image || meta?.ipfsHash || '';
+                    if (typeof raw === 'string' && raw.length > 0) {
+                      a.image = raw.startsWith('ipfs://') ? raw.replace('ipfs://', 'https://gateway.pinata.cloud/ipfs/') :
+                               raw.startsWith('http') ? raw : `https://gateway.pinata.cloud/ipfs/${raw}`;
+                    }
+                  }
+                } catch {}
+              }
+            }
+
+            if (a.type === 'ERC-721') {
+              const filter = (erc721Contract as any).filters.Transfer(zeroAddress, null, BigInt(a.tokenId));
+              const logs = await (erc721Contract as any).queryFilter(filter, 0, 'latest');
+              if (logs && logs.length > 0) {
+                return { ...a, txHash: logs[0].transactionHash };
+              }
+            } else {
+              const filter = (erc1155Contract as any).filters.TransferSingle(null, zeroAddress, null, BigInt(a.tokenId));
+              const logs = await (erc1155Contract as any).queryFilter(filter, 0, 'latest');
+              if (logs && logs.length > 0) {
+                return { ...a, txHash: logs[0].transactionHash };
+              }
+            }
+          } catch {}
+          return a;
+        }));
+        setAssets(enriched);
+      } catch {
+        setAssets(myAssets);
+      }
 
     } catch (error) {
       console.error('Error loading user assets:', error);
@@ -379,7 +448,20 @@ const Dashboard: React.FC = () => {
 
                     <div className="relative aspect-square bg-black/40">
                         {asset.image ? (
-                            <img className="w-full h-full object-cover" src={asset.image} alt={asset.name} />
+                            <img 
+                              className="w-full h-full object-cover" 
+                              src={asset.image} 
+                              alt={asset.name} 
+                              onError={(e) => {
+                                const t = e.currentTarget as HTMLImageElement;
+                                if (!t.dataset.fallback) {
+                                  t.dataset.fallback = '1';
+                                  t.src = asset.image.replace('https://gateway.pinata.cloud/ipfs/', 'https://ipfs.io/ipfs/');
+                                } else {
+                                  t.style.display = 'none';
+                                }
+                              }}
+                            />
                         ) : (
                             <div className="w-full h-full flex items-center justify-center text-gray-600">No Image</div>
                         )}
@@ -422,12 +504,13 @@ const Dashboard: React.FC = () => {
                                  </button>
                              )}
 
-                             {/* ✅ RESTORED LINK: Points to original route to fix 404 */}
-                             <Link 
-                                to={`/asset/${asset.tokenId}`}
-                                className="block text-center w-full py-2 bg-[#00E0FF] text-black font-bold rounded-lg hover:bg-[#00B8D9] transition-colors text-sm"
+                            {/* ✅ RESTORED LINK: Points to original route to fix 404 */}
+                            <Link 
+                               to={`/asset/${asset.tokenId}`}
+                               state={{ isERC1155: asset.type === 'ERC-1155' }}
+                               className="block text-center w-full py-2 bg-[#00E0FF] text-black font-bold rounded-lg hover:bg-[#00B8D9] transition-colors text-sm"
                              >
-                                View Details
+                               View Details
                              </Link>
                         </div>
                     </div>
@@ -463,7 +546,7 @@ const Dashboard: React.FC = () => {
       {/* LISTING MODAL */}
       {isListModalOpen && listingAsset && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 animate-fade-in">
-            <div className="bg-[#1A1F2E] border border-gray-700 rounded-2xl p-6 max-w-md w-full shadow-2xl relative">
+            <div className="bg-[#1A1F2E] border border-gray-700 rounded-2xl p-6 w-full max-w-lg md:w-[560px] md:h-[520px] overflow-y-auto shadow-2xl relative">
                 <button 
                     onClick={() => setIsListModalOpen(false)}
                     className="absolute top-4 right-4 text-gray-400 hover:text-white"
