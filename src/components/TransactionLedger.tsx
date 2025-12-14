@@ -234,7 +234,7 @@ const TransactionLedger: React.FC = () => {
     currentPage * ITEMS_PER_PAGE
   );
 
-  // ✅ EXPORT CSV FUNCTION
+  // export csv function
   const handleExportCSV = () => {
     if (filteredTransactions.length === 0) {
       toast.error("No transactions to export");

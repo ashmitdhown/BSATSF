@@ -17,7 +17,7 @@ const MintAsset: React.FC = () => {
   const [ipfsHash, setIpfsHash] = useState('');
   const [assetName, setAssetName] = useState('');
   
-  // ✅ ID State
+  // id state
   const [assetId, setAssetId] = useState('');
   const [legalId, setLegalId] = useState('');
   
@@ -28,7 +28,7 @@ const MintAsset: React.FC = () => {
   const [maxSupply1155, setMaxSupply1155] = useState<number>(0);
   const [priceEth, setPriceEth] = useState<string>('');
 
-  // ✅ GENERATE UNIQUE IDs
+  // generate unique ids
   const generateIds = () => {
     const timestamp = Date.now().toString(36).toUpperCase().slice(-6);
     const random1 = Math.random().toString(36).substring(2, 6).toUpperCase();
@@ -196,7 +196,7 @@ const MintAsset: React.FC = () => {
                     <label className="flex items-center gap-2 text-sm font-medium text-[#A0A0A0]">Legal Identifier <span title="Auto-generated unique legal reference" className="cursor-help"><HelpCircle size={16} className="text-[#A0A0A0]" /></span></label>
                     <button onClick={generateIds} className="text-[#00E0FF] hover:text-white transition-colors" title="Regenerate ID"><RefreshCw size={14}/></button>
                   </div>
-                  {/* ✅ READ-ONLY INPUT FOR LEGAL ID */}
+                  {/*READ-ONLY INPUT FOR LEGAL ID */}
                   <input className="w-full rounded-lg p-2.5 text-sm bg-[#0a0e17] border-[#3b4354] text-gray-400 font-mono cursor-not-allowed" readOnly type="text" value={legalId} />
                 </div>
                 <div>
