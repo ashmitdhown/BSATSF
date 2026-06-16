@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback, ReactNode } from 'react';
 import { ethers } from 'ethers';
 import detectEthereumProvider from '@metamask/detect-provider';
 import toast from 'react-hot-toast';
@@ -49,7 +49,7 @@ const MINIMAL_ABI = [
 
 const Web3Context = createContext<Web3ContextType | undefined>(undefined);
 
-const SEPOLIA_CHAIN_ID = '0xaa36a7';
+// Removed unused SEPOLIA_CHAIN_ID
 
 export const Web3Provider: React.FC<{ children: ReactNode }> = ({ children }) => {
   const [account, setAccount] = useState<string | null>(null);
@@ -88,7 +88,7 @@ export const Web3Provider: React.FC<{ children: ReactNode }> = ({ children }) =>
     return url;
   };
 
-  const loadAssets = async () => {
+  const loadAssets = useCallback(async () => {
     if (!provider) return;
     const erc721Address = process.env.REACT_APP_ERC721_ADDRESS;
     const erc1155Address = process.env.REACT_APP_ERC1155_ADDRESS;
@@ -138,7 +138,7 @@ export const Web3Provider: React.FC<{ children: ReactNode }> = ({ children }) =>
       setAssets(allAssets);
     } catch (error) { console.error("Error loading assets:", error); } 
     finally { setIsLoadingAssets(false); }
-  };
+  }, [provider]);
 
   const checkNetwork = async (provider: ethers.BrowserProvider) => {
     try {
@@ -231,12 +231,12 @@ export const Web3Provider: React.FC<{ children: ReactNode }> = ({ children }) =>
     } catch {}
   };
 
-  const switchAccount = async (accountAddress: string) => { /* ... */ };
+  // Removed unused switchAccount
   const switchToSepolia = async () => { /* ... */ };
 
   useEffect(() => {
     if (provider && isCorrectNetwork) loadAssets();
-  }, [provider, isCorrectNetwork, account]); 
+  }, [provider, isCorrectNetwork, account, loadAssets]); 
 
   return (
     <Web3Context.Provider

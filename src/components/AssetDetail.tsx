@@ -273,6 +273,7 @@ const AssetDetails: React.FC = () => {
 
         fetchAssetDetails();
         return () => { isMounted = false; clearTimeout(timer); };
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [id, erc721Contract, erc1155Contract, getMarketplaceListings, contractAddresses]);
 
     if (loading) {

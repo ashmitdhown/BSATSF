@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useWeb3 } from '../contexts/Web3Context';
 import { useContracts } from '../contexts/ContractContext';
 import { ArrowRightLeft, Wallet, CheckCircle, AlertCircle, Copy, ExternalLink, DollarSign, Clock } from 'lucide-react';
@@ -40,17 +40,7 @@ const TransferOwnership: React.FC = () => {
   const [isValidAddress, setIsValidAddress] = useState(false);
   const [loading, setLoading] = useState(true);
 
-  // Load assets on mount or account change
-  useEffect(() => {
-    loadUserAssets();
-    loadTransferFee();
-  }, [account, erc721Contract, erc1155Contract]);
-
-  useEffect(() => {
-    validateAddress();
-  }, [recipientAddress]);
-
-  const loadUserAssets = async () => {
+  const loadUserAssets = useCallback(async () => {
     if (!account || !erc721Contract || !erc1155Contract) return;
 
     setLoading(true);
@@ -95,9 +85,9 @@ const TransferOwnership: React.FC = () => {
     } finally {
       setLoading(false);
     }
-  };
+  }, [account, erc721Contract, erc1155Contract]);
 
-  const loadTransferFee = async () => {
+  const loadTransferFee = useCallback(async () => {
     try {
       const fee = await getTransferFee();
       if (fee) {
@@ -106,9 +96,9 @@ const TransferOwnership: React.FC = () => {
     } catch (error) {
       console.error('Error loading transfer fee:', error);
     }
-  };
+  }, [getTransferFee]);
 
-  const validateAddress = () => {
+  const validateAddress = useCallback(() => {
     try {
       if (recipientAddress && ethers.isAddress(recipientAddress)) {
         setIsValidAddress(true);
@@ -118,7 +108,17 @@ const TransferOwnership: React.FC = () => {
     } catch {
       setIsValidAddress(false);
     }
-  };
+  }, [recipientAddress]);
+
+  // Load assets on mount or account change
+  useEffect(() => {
+    loadUserAssets();
+    loadTransferFee();
+  }, [account, erc721Contract, erc1155Contract, loadUserAssets, loadTransferFee]);
+
+  useEffect(() => {
+    validateAddress();
+  }, [recipientAddress, validateAddress]);
 
   const handleTransfer = async () => {
     if (!selectedAsset || !recipientAddress || !account) {

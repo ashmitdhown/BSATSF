@@ -1,9 +1,27 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState, useCallback } from 'react';
 import { Search, Download, Copy, ChevronLeft, ChevronRight, User, Globe, RefreshCw, Clock } from 'lucide-react';
 import { useContracts } from '../contexts/ContractContext';
 import { useWeb3 } from '../contexts/Web3Context';
 import { ethers } from 'ethers';
 import toast from 'react-hot-toast';
+
+// Define interfaces outside the component to prevent recreation on render
+const erc721Interface = new ethers.Interface([
+  "event AssetMinted(uint256 indexed tokenId, address indexed to, string metadataURI)",
+  "event AssetTransferred(uint256 indexed tokenId, address indexed from, address indexed to, uint256 fee)",
+  "event Transfer(address indexed from, address indexed to, uint256 indexed tokenId)" 
+]);
+
+const erc1155Interface = new ethers.Interface([
+  "event AssetMinted(uint256 indexed tokenId, address indexed to, uint256 amount, string metadataURI)",
+  "event TransferSingle(address indexed operator, address indexed from, address indexed to, uint256 id, uint256 value)"
+]);
+
+const marketplaceInterface = new ethers.Interface([
+  "event ItemListed(uint256 indexed listingId, address indexed seller, address indexed tokenAddress, uint256 tokenId, uint256 quantity, uint256 pricePerUnit)",
+  "event ItemSold(uint256 indexed listingId, address indexed buyer, address indexed tokenAddress, uint256 tokenId, uint256 quantity, uint256 totalPrice)",
+  "event ItemCanceled(uint256 indexed listingId)"
+]);
 
 const TransactionLedger: React.FC = () => {
   const [searchTerm, setSearchTerm] = useState('');
@@ -36,25 +54,9 @@ const TransactionLedger: React.FC = () => {
     return net === 'sepolia' ? 'https://sepolia.etherscan.io' : 'https://etherscan.io';
   }, [contractAddresses]);
 
-  // Define interfaces locally
-  const erc721Interface = new ethers.Interface([
-    "event AssetMinted(uint256 indexed tokenId, address indexed to, string metadataURI)",
-    "event AssetTransferred(uint256 indexed tokenId, address indexed from, address indexed to, uint256 fee)",
-    "event Transfer(address indexed from, address indexed to, uint256 indexed tokenId)" 
-  ]);
+  // Interfaces moved outside of component scope
 
-  const erc1155Interface = new ethers.Interface([
-    "event AssetMinted(uint256 indexed tokenId, address indexed to, uint256 amount, string metadataURI)",
-    "event TransferSingle(address indexed operator, address indexed from, address indexed to, uint256 id, uint256 value)"
-  ]);
-
-  const marketplaceInterface = new ethers.Interface([
-    "event ItemListed(uint256 indexed listingId, address indexed seller, address indexed tokenAddress, uint256 tokenId, uint256 quantity, uint256 pricePerUnit)",
-    "event ItemSold(uint256 indexed listingId, address indexed buyer, address indexed tokenAddress, uint256 tokenId, uint256 quantity, uint256 totalPrice)",
-    "event ItemCanceled(uint256 indexed listingId)"
-  ]);
-
-  const loadLogs = async () => {
+  const loadLogs = useCallback(async () => {
     try {
       if (!provider || !contractAddresses) {
         console.warn("Ledger: Provider or Addresses missing", { provider, contractAddresses });
@@ -204,11 +206,11 @@ const TransactionLedger: React.FC = () => {
     } finally {
       setIsLoading(false);
     }
-  };
+  }, [provider, contractAddresses]);
 
   useEffect(() => {
     loadLogs();
-  }, [provider, contractAddresses]);
+  }, [provider, contractAddresses, loadLogs]);
 
   // --- Filtering Logic ---
   const filteredTransactions = transactions.filter(t => {

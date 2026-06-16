@@ -1,8 +1,8 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom'; // <--- Added for navigation
 import { useContracts, MarketplaceListing } from '../contexts/ContractContext';
 import { useWeb3 } from '../contexts/Web3Context';
-import { Search, Grid, List, ExternalLink, ShoppingCart, XCircle, RefreshCw, Eye } from 'lucide-react';
+import { Search, Grid, List, ShoppingCart, XCircle, RefreshCw, Eye } from 'lucide-react';
 import toast from 'react-hot-toast';
 
 // Combined interface for UI
@@ -16,7 +16,7 @@ interface DisplayListing extends MarketplaceListing {
 
 const Marketplace: React.FC = () => {
   const navigate = useNavigate(); // <--- Initialize hook
-  const { getMarketplaceListings, getAssetMetadata, buyAsset, cancelListing, contractAddresses } = useContracts();
+  const { getMarketplaceListings, getAssetMetadata, buyAsset, cancelListing } = useContracts();
   const { account } = useWeb3();
 
   const [listings, setListings] = useState<DisplayListing[]>([]);
@@ -26,11 +26,9 @@ const Marketplace: React.FC = () => {
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
 
   // Load listings on mount
-  useEffect(() => {
-    loadListings();
-  }, [getMarketplaceListings]);
+  // useEffect moved below loadListings declaration
 
-  const loadListings = async () => {
+  const loadListings = useCallback(async () => {
     setLoading(true);
     try {
       console.log("Fetching marketplace listings...");
@@ -73,7 +71,11 @@ const Marketplace: React.FC = () => {
     } finally {
       setLoading(false);
     }
-  };
+  }, [getMarketplaceListings, getAssetMetadata]);
+
+  useEffect(() => {
+    loadListings();
+  }, [loadListings]);
 
   const handleBuy = async (listing: DisplayListing) => {
     if (!account) {
@@ -282,6 +284,7 @@ const Marketplace: React.FC = () => {
                       {asset.image && (
                         <img 
                           src={asset.image} 
+                          alt={asset.name}
                           className="w-full h-full object-cover"
                           onError={(e) => {
                             const t = e.currentTarget as HTMLImageElement;

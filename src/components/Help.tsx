@@ -9,8 +9,7 @@ import {
     Globe,
     Wallet,
     FileText,
-    Copy,
-    Check
+    Copy
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 

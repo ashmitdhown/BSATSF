@@ -1,8 +1,8 @@
-import React, { useState, useEffect } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import React, { useState, useEffect, useCallback } from 'react';
+import { Link } from 'react-router-dom';
 import { useWeb3 } from '../contexts/Web3Context';
 import { useContracts } from '../contexts/ContractContext';
-import { Search, ChevronLeft, ChevronRight, Plus, Tag, XCircle, RefreshCw, Trash2, Eye, Download } from 'lucide-react';
+import { Search, ChevronLeft, ChevronRight, Plus, Tag, XCircle, RefreshCw, Trash2, Download } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { ethers } from 'ethers';
 
@@ -32,7 +32,7 @@ const BURN_ADDRESS = "0x0000000000000000000000000000000000000001";
 
 const Dashboard: React.FC = () => {
   const { account, balanceEth, refreshBalance, hideBalance, provider } = useWeb3();
-  const navigate = useNavigate();
+  // Removed unused navigate
 
   const {
     erc721Contract,
@@ -79,10 +79,7 @@ const Dashboard: React.FC = () => {
     }
   }, []);
 
-  useEffect(() => {
-    loadUserAssets();
-    if (refreshBalance) refreshBalance();
-  }, [account, erc721Contract, erc1155Contract]);
+  // useEffect moved below loadUserAssets declaration
 
   const handleRefresh = async () => {
     await loadUserAssets();
@@ -90,7 +87,7 @@ const Dashboard: React.FC = () => {
     toast.success("Assets refreshed");
   };
 
-  const loadUserAssets = async () => {
+  const loadUserAssets = useCallback(async () => {
     if (!account || !erc721Contract || !erc1155Contract) {
       if (!account) setLoading(false);
       return;
@@ -207,7 +204,12 @@ const Dashboard: React.FC = () => {
     } finally {
       setLoading(false);
     }
-  };
+  }, [account, erc721Contract, erc1155Contract, getMarketplaceListings]);
+
+  useEffect(() => {
+    loadUserAssets();
+    if (refreshBalance) refreshBalance();
+  }, [account, erc721Contract, erc1155Contract, loadUserAssets, refreshBalance]);
 
   // 🔥 HANDLE DOWNLOAD ASSET
   const handleDownload = async (imageUrl: string, fileName: string) => {

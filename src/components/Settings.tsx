@@ -12,7 +12,6 @@ const Settings: React.FC = () => {
     account,
     disconnectWallet,
     balanceEth,
-    isCorrectNetwork,
     hideBalance,
     toggleHideBalance
   } = useWeb3();
