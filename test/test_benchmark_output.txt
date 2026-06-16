@@ -1,0 +1,38 @@
+
+> lattice-ledger@1.0.0 test:contracts
+> hardhat test
+
+
+
+  BSATSF Quantitative Benchmarks
+Deployed ERC721 at: 0x5FbDB2315678afecb367f032d93F642f64180aa3
+Deployed ERC1155 at: 0xe7f1725E7734CE288F8367e1Bb143E90bb3F0512
+Deployed Marketplace at: 0x9fE46736679d2D9a65F0992F2272dE9f3c7fa6e0
+
+==================================================
+            GAS BENCHMARK STATS (50 RUNS)         
+==================================================
+Mint Asset:      Mean = 290452.4 gas, Std Dev = 5301.9
+Approve Market:  Mean = 48690.8 gas, Std Dev = 1.7
+List Asset:      Mean = 200025.8 gas, Std Dev = 393.7
+Buy Asset:       Mean = 71403.6 gas, Std Dev = 2599.6
+Tx Latency:      Mean = 0.0s, Std Dev = 0.0s
+==================================================
+
+    ✔ Gathers Gas & Latency Data across 50 runs (137ms)
+Filling listings up to 500 to measure view function execution overhead...
+Total listings populated. Calling getAllActiveListings()...
+
+==================================================
+        SCALABILITY & THROUGHPUT RESULTS          
+==================================================
+Active listings returned: 475
+getAllActiveListings Execution Time: 173 ms
+Est. block gas limit constraint: At 500 listings, read size is safe, but on-chain calls scale linearly.
+==================================================
+
+    ✔ Verifies scalability ceiling at 500 listings (1180ms)
+
+
+  2 passing (2s)
+
