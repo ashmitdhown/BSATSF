@@ -2,7 +2,7 @@
 
 A blockchain asset management platform built with React, TypeScript, and Web3 integration.
 
-![Dashboard](dashboard.jpeg)
+![Dashboard](Dashboard.jpeg)
 
 ## Features & Implementation Summary
 
