@@ -2,34 +2,83 @@
 
 A blockchain asset management platform built with React, TypeScript, and Web3 integration.
 
-## Features
+![Dashboard](dashboard.jpeg)
 
-- **MetaMask Integration** - Connect wallet with Sepolia testnet support
-- **Asset Registry Dashboard** - Browse ERC-721 & ERC-1155 tokens with search/filter
-- **Asset Minting** - IPFS file upload with drag-drop, metadata forms, animated token orbits
-- **Transfer Ownership** - Wallet address validation with confirmation states
-- **Transaction Ledger** - Filterable table with pagination and export functionality
-- **Asset Verification** - Token ID/transaction hash lookup
-- **Asset Detail View** - Individual asset pages with provenance timeline
+## Features & Implementation Summary
+
+### 1. MetaMask & Multi-Account Integration
+- **Wallet Connection:** Automated detection, permission requests, and state synchronization via React contexts.
+- **Account Selector:** Native dropdown in sidebar allowing users to switch between multiple MetaMask accounts with live permission and balance updates.
+- **Network Validation:** Enforcement of the Sepolia testnet environment with automatic chain checks.
+
+### 2. Asset Minting & Decentralized Storage
+- **IPFS Integration:** Decentralized asset metadata and raw file storage via a drag-and-drop workflow.
+- **Dual Token Support:** - **ERC-721:** Minting unique individual assets featuring customizable form metadata.
+  - **ERC-1155:** Multi-token creation support specifying fractional batch quantities and strict total supply limits.
+
+### 3. Personal Dashboard & Public Marketplace
+- **Dashboard Registry:** Browse your personal collection of owned ERC-721 and ERC-1155 tokens using localized search and filtering parameters.
+- **Public Marketplace:** Global discovery grid/list interface showcasing listed assets across all connected ecosystem wallets, fetching decentralized media dynamically.
+- **Trading Escrow:** List items with custom designated ETH valuations per unit and securely purchase assets globally.
+
+### 4. Controlled Transfers & Protocol Fees
+- **ETH Transfer Fees:** Configured with a default base contract premium of `0.001 ETH` per transaction routing transfer fees straight to the protocol owner.
+- **Safe Transfers:** Built-in recipient wallet address validations, multi-state confirmations, and atomic excess-payment refund sweeps.
+
+### 5. Transaction Receipts, History & Verification
+- **Transaction Ledger:** Comprehensive paginated and filterable table displaying histories alongside data export functionality.
+- **Receipt Insights:** Immersive review of execution logs detailing tx hashes, tracking blocks, gas consumed, and timestamps.
+- **Asset Verification:** Public registry search module to query provenance records by transaction hashes or Token IDs directly referenced against Sepolia Etherscan.
 
 ## Tech Stack
 
-- **React 18** with TypeScript for type safety
-- **Ethers.js** for Web3 integration and MetaMask interaction
-- **Tailwind CSS** for utility-first styling
-- **React Router** for navigation between components
-- **IPFS Integration** for decentralized file storage
-- **React Hot Toast** for user notifications
-- **Lucide React** for modern icons
-- **Framer Motion** for smooth animations
+- **Frontend:** React 18 with TypeScript for structural type safety
+- **Web3 Libraries:** Ethers.js for blockchain interactions and MetaMask handshakes
+- **Smart Contracts:** Solidity v0.8.20 + OpenZeppelin Contracts library
+- **Development Tooling:** Hardhat environment for building, compiling, and network deployments
+- **Styling:** Tailwind CSS with custom glassmorphism and animated backdrop blurring layouts
+- **Animations:** Framer Motion for interactive layout configurations
+- **Routing & Feedback:** React Router & React Hot Toast alerts
+
+## Smart Contract Profiles
+
+### `BSATSF_ERC721.sol`
+- ERC-721 non-fungible asset instantiation utilizing an internal auto-increment token counter.
+- Embedded native payment handling enforcing `transferFee` collections with automated user refunds.
+- Comprehensive `getAllAssets()` and `getMyAssets()` display views minimizing frontend query loads.
+
+### `BSATSF_ERC1155.sol`
+- Semi-fungible multi-token standard tracking creator records and balance configurations.
+- Supports individual asset generation, supply expansions, or combined custom multi-asset array generation through `mintBatch()`.
+- Custom inherited `burn()` and `burnBatch()` supply management protocols.
+
+### `BSATSF_Marketplace.sol`
+- Central trustless trade execution routing and listings validation logic supporting both ERC-721 and ERC-1155.
+- Atomic operations verifying safety approval handshakes, settlement payouts, and immediate item delivery.
+
+## Application Architecture Flow
+
+### User Journey:
+1. **Connect Wallet** → Access the dApp via MetaMask and perform network or multi-account validation checks.
+2. **View Marketplace** → Discover all globally active public asset items available for purchase.
+3. **Mint Assets** → Push files and corresponding metadata objects into IPFS to submit live on-chain mint entries.
+4. **Transfer Assets** → Select specific collection tokens, fill in verification parameters, pay required fees, and commit ownership adjustments.
+5. **View Ledger Receipts** → Verify operational validity using interactive historical logs detailing performance parameters linked to Etherscan.
 
 ## Getting Started
 
 ### Prerequisites
 
-- Node.js 16+ and npm
+- Node.js (Version 16 or newer) + npm package manager
 - MetaMask browser extension
-- Access to Sepolia testnet
+- Access to Sepolia testnet with loaded faucet funds
+
+## Accounts to Create (Free)
+- MetaMask: wallet for user, deployer, and test accounts
+- Infura: free account/project to get Sepolia RPC (`REACT_APP_INFURA_PROJECT_ID`)
+- Etherscan: free API key for contract verification (`ETHERSCAN_API_KEY`)
+- web3.storage: free token to pin files and metadata to IPFS (`WEB3_STORAGE_TOKEN`)
+- Optional: Pinata (alternative IPFS), Alchemy (alternative RPC)
 
 ### Installation
 
@@ -106,6 +155,12 @@ src/
 - **Smart Contracts**: ERC-721 and ERC-1155 token support
 - **Transaction Handling**: Ethers.js for blockchain interactions
 - **Error Handling**: User-friendly error messages and fallbacks
+
+## Security & Cost Controls
+- All operations are on Sepolia testnet (free faucet ETH)
+- No secret logging; read env vars only
+- Basic checks in UI for addresses and balances; error toasts
+- Marketplace requires approval before listing to prevent unauthorized transfers
 
 ## Contributing
 
